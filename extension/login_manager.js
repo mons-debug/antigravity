@@ -416,95 +416,91 @@ function getEffectiveZIndex(el) {
 }
 
 /**
- * Extract the 9 grid images by finding the container near the instruction text.
- * Uses XPath to locate "Please select" label, then finds images in nearby container.
+ * Extract the 9 grid images by finding the instruction text and nearby images.
+ * Excludes script/style tags and focuses on visible text elements.
  */
 function getVisualGrid() {
-    console.log('[LoginManager] 🔬 Finding grid container near instruction text...');
+    console.log('[LoginManager] 🔬 Finding grid images...');
 
-    // Step 1: Find the instruction label using XPath
+    // Step 1: Find the instruction label (EXCLUDE scripts and styles)
     let label = null;
-    try {
-        const xpath = "//*[contains(text(),'Please select')]";
-        label = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-    } catch (e) {
-        console.warn('[LoginManager] XPath failed, falling back to querySelector');
-    }
+    const visibleElements = document.querySelectorAll('p, span, div, label, h1, h2, h3, h4, h5, td, th');
 
-    // Fallback: try querySelector
-    if (!label) {
-        const candidates = document.querySelectorAll('p, span, div, label');
-        for (const el of candidates) {
-            if (el.textContent?.includes('Please select')) {
-                label = el;
-                break;
-            }
+    for (const el of visibleElements) {
+        // Skip if inside script or style
+        if (el.closest('script') || el.closest('style') || el.closest('noscript')) continue;
+
+        // Skip if not visible
+        if (el.offsetParent === null && el.tagName !== 'BODY') continue;
+
+        // Check for instruction text
+        const text = el.textContent?.trim() || '';
+        if (text.includes('Please select all boxes') || text.match(/select.*boxes.*number/i)) {
+            label = el;
+            console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
+            break;
         }
     }
 
-    if (!label) {
-        console.warn('[LoginManager] ⚠️ Instruction label not found!');
-        return [];
-    }
+    // Step 2: Find grid images - look for 3x3 grid pattern
+    // Strategy: Find all images with proper size, sort by position, take 9
+    const allImages = Array.from(document.querySelectorAll('img'));
 
-    console.log(`[LoginManager] 📍 Found instruction: "${label.textContent?.substring(0, 50)}..."`);
+    console.log(`[LoginManager] 📷 Total images on page: ${allImages.length}`);
 
-    // Step 2: Find the grid container (sibling, parent's sibling, or nearest table/div)
-    let container = label.nextElementSibling;
-
-    // Try parent's next sibling if direct sibling has no images
-    if (!container || container.querySelectorAll('img').length < 9) {
-        container = label.parentElement?.nextElementSibling;
-    }
-
-    // Try finding a table nearby
-    if (!container || container.querySelectorAll('img').length < 9) {
-        container = label.closest('div')?.querySelector('table');
-    }
-
-    // Last resort: use parent container
-    if (!container || container.querySelectorAll('img').length < 9) {
-        container = label.parentElement || document.body;
-    }
-
-    console.log(`[LoginManager] � Container: ${container.tagName}, Images inside: ${container.querySelectorAll('img').length}`);
-
-    // Step 3: Get images from container
-    const allImages = Array.from(container.querySelectorAll('img'));
-
-    // Step 4: Filter - must have onclick OR be inside clickable parent, and proper size
+    // Filter to grid-sized, visible, clickable images
     const gridImages = allImages.filter(img => {
         const rect = img.getBoundingClientRect();
 
         // Must be visible
         if (img.offsetParent === null) return false;
+        if (rect.width === 0 || rect.height === 0) return false;
 
-        // Size check (30-200px range)
+        // Size check: typical CAPTCHA cells are 60-150px
         const w = rect.width;
         const h = rect.height;
-        if (w < 30 || w > 200) return false;
-        if (h < 30 || h > 200) return false;
+        if (w < 40 || w > 200) return false;
+        if (h < 40 || h > 200) return false;
 
-        // Must be clickable (has onclick or parent has onclick)
-        const isClickable = img.onclick || img.hasAttribute('onclick') ||
-            img.closest('[onclick]') || img.closest('td') || img.closest('a');
+        // Must be roughly square (aspect ratio between 0.7 and 1.4)
+        const aspect = w / h;
+        if (aspect < 0.7 || aspect > 1.4) return false;
+
+        // Must be on screen
+        if (rect.top < 0 || rect.left < 0) return false;
+
+        // Must be clickable (has onclick, or inside table cell, or has pointer cursor)
+        const style = window.getComputedStyle(img);
+        const isClickable =
+            img.onclick ||
+            img.hasAttribute('onclick') ||
+            img.closest('[onclick]') ||
+            img.closest('td') ||
+            style.cursor === 'pointer';
 
         return isClickable;
     });
 
-    console.log(`[LoginManager] ✅ Found ${gridImages.length} clickable images`);
+    console.log(`[LoginManager] ✅ Found ${gridImages.length} grid-candidate images`);
 
-    // Step 5: Sort by position (Row-major: Top->Bottom, Left->Right)
+    // Step 3: Sort by position (Row-major: Top->Bottom, Left->Right)
     gridImages.sort((a, b) => {
         const rA = a.getBoundingClientRect();
         const rB = b.getBoundingClientRect();
-        if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
+        // Same row if within 20px vertical
+        if (Math.abs(rA.top - rB.top) > 20) return rA.top - rB.top;
         return rA.left - rB.left;
     });
 
-    // Take first 9
+    // Take first 9 (3x3 grid)
     const finalGrid = gridImages.slice(0, 9);
     console.log(`[LoginManager] 🗺️ Grid: Using ${finalGrid.length} images`);
+
+    // Log dimensions for debugging
+    if (finalGrid.length > 0) {
+        const first = finalGrid[0].getBoundingClientRect();
+        console.log(`[LoginManager] 📐 First image size: ${Math.round(first.width)}x${Math.round(first.height)}`);
+    }
 
     return finalGrid;
 }
