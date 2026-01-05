@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Operator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <h1>Antigravity</h1>
+      </div>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span class="status-text">IDLE</span>
+      </div>
+    </header>
+
+    <!-- Target Status Card -->
+    <section class="target-section" id="targetSection">
+      <div class="target-card" id="targetCard">
+        <div class="target-header">
+          <span class="target-icon">👤</span>
+          <span class="target-name" id="targetName">No Active Client</span>
+        </div>
+        <div class="target-details" id="targetDetails">
+          <span class="target-info">⚠️ Please load a client in Dashboard</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="btnDashboard" style="width: 100%; margin-top: 12px;">
+        📂 Manage Clients
+      </button>
+    </section>
+
+    <!-- Toggles Section -->
+    <section class="toggles-section">
+      <div class="toggle-row">
+        <label class="toggle-label">
+          <span class="toggle-icon">🎯</span> Auto-Sniper
+        </label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoSniper" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <label class="toggle-label">
+          <span class="toggle-icon">🔇</span> Silent Mode
+        </label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="silentMode">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-value" id="totalChecks">0</span>
+        <span class="stat-label">Checks</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="slotsFound">0</span>
+        <span class="stat-label">Found</span>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <section class="actions-section">
+      <button class="btn btn-start" id="btnStart" disabled>
+        <span class="btn-icon">▶</span> START HUNTING
+      </button>
+      <button class="btn btn-stop" id="btnStop" style="display: none;">
+        <span class="btn-icon">⏹</span> STOP MISSION
+      </button>
+    </section>
+
+    <!-- Console Output -->
+    <div class="console-container">
+      <div class="console-header">
+        <span>Terminal Output</span>
+        <button class="clear-btn" id="btnClearConsole">Clear</button>
+      </div>
+      <div class="console-output" id="consoleOutput">
+        <div class="log-entry info">
+          <span class="time">[--:--:--]</span> System ready.
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-indicator disconnected"></span>
+        <span class="status-label">Disconnected</span>
+      </div>
+
+      <!-- Proxy Controls -->
+      <div class="proxy-controls" style="display: flex; gap: 8px; align-items: center;">
+        <button class="btn-proxy" id="btnRotateProxy" title="Rotate IP"
+          style="background: #ff9800; border: none; padding: 6px 12px; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px;">
+          🔄 Rotate IP
+        </button>
+        <span id="proxyStatus"
+          style="font-size: 10px; color: #888; max-width: 100px; overflow: hidden; text-overflow: ellipsis;"></span>
+      </div>
+
+      <button class="btn-test" id="btnTest">🧪 Test Sniper</button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

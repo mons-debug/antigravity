@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Barracks - Client Management</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>⚡ The Barracks</h1>
+                <p class="subtitle">Client Management Dashboard</p>
+            </div>
+            <div class="header-right">
+                <span class="client-count" id="clientCount">0 Clients</span>
+                <div class="active-indicator" id="activeIndicator">
+                    <span class="indicator-dot"></span>
+                    <span id="activeClientName">No Active Client</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="clients">👥 Clients</button>
+            <button class="tab-btn" data-tab="proxies">🛡️ Proxies</button>
+            <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+        </nav>
+
+        <!-- Tab Content: Clients -->
+        <div class="tab-panel active" id="tabClients">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <button class="btn btn-primary" id="btnAddClient">
+                    <span>+</span> Add Client
+                </button>
+                <div class="toolbar-right">
+                    <button class="btn btn-secondary" id="btnImport">
+                        📥 Import
+                    </button>
+                    <button class="btn btn-secondary" id="btnExport">
+                        📤 Export
+                    </button>
+                </div>
+            </div>
+
+            <!-- Client Table -->
+            <div class="table-container">
+                <table class="client-table" id="clientTable">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Visa Type</th>
+                            <th>Passport</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clientTableBody">
+                        <!-- Clients will be rendered here -->
+                    </tbody>
+                </table>
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">👥</div>
+                    <h3>No Clients Yet</h3>
+                    <p>Add your first client to get started</p>
+                </div>
+            </div>
+
+            <!-- Hidden file input for import -->
+            <input type="file" id="importFile" accept=".json" class="hidden-input">
+        </div>
+
+        <!-- Tab Content: Proxies -->
+        <div class="tab-panel" id="tabProxies">
+            <div class="proxy-section">
+                <div class="proxy-header">
+                    <h2>🛡️ Proxy Management</h2>
+                    <span class="proxy-count" id="proxyCount">0 Proxies Loaded</span>
+                </div>
+
+                <div class="proxy-info">
+                    <p>Enter one proxy per line. Supported formats:</p>
+                    <code>ip:port</code> or <code>ip:port:username:password</code>
+                </div>
+
+                <textarea id="proxyTextarea" class="proxy-textarea"
+                    placeholder="192.168.1.1:8080&#10;proxy.example.com:3128:user:pass&#10;..."
+                    spellcheck="false"></textarea>
+
+                <div class="proxy-actions">
+                    <button class="btn btn-primary" id="btnSaveProxies">
+                        💾 Save Proxies
+                    </button>
+                    <button class="btn btn-secondary" id="btnTestProxies">
+                        🧪 Test All
+                    </button>
+                    <button class="btn btn-secondary" id="btnClearProxies">
+                        🗑️ Clear
+                    </button>
+                </div>
+
+                <div class="proxy-status" id="proxyStatus"></div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Settings -->
+        <div class="tab-panel" id="tabSettings">
+            <div class="settings-section">
+                <div class="settings-header">
+                    <h2>⚙️ Settings</h2>
+                </div>
+
+                <!-- CAPTCHA Service -->
+                <div class="settings-card">
+                    <h3 class="settings-card-title">🧩 CAPTCHA Service</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="captchaProvider">Provider</label>
+                            <select id="captchaProvider">
+                                <option value="nocaptchaai">NoCaptchaAI</option>
+                                <option value="2captcha">2Captcha</option>
+                                <option value="anticaptcha">Anti-Captcha</option>
+                                <option value="capsolver">CapSolver</option>
+                                <option value="gpt4vision">GPT-4 Vision</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="captchaApiKey">API Key</label>
+                            <input type="password" id="captchaApiKey" placeholder="Enter API key...">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Telegram Notifications -->
+                <div class="settings-card">
+                    <h3 class="settings-card-title">📢 Telegram Notifications</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="telegramBotToken">Bot Token</label>
+                            <input type="password" id="telegramBotToken" placeholder="123456789:ABC...">
+                        </div>
+                        <div class="form-group">
+                            <label for="telegramChatId">Chat ID</label>
+                            <input type="text" id="telegramChatId" placeholder="-1001234567890">
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-secondary" id="btnTestTelegram">
+                        📨 Test Notification
+                    </button>
+                </div>
+
+                <!-- Global Settings -->
+                <div class="settings-card">
+                    <h3 class="settings-card-title">🌐 Global Settings</h3>
+                    <div class="toggle-row">
+                        <label class="toggle-label">
+                            <span class="toggle-icon">👻</span> Headless Mode
+                            <span class="toggle-hint">(Auto-solve without window)</span>
+                        </label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="headlessMode">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-row">
+                        <label class="toggle-label">
+                            <span class="toggle-icon">🔔</span> Sound Notifications
+                            <span class="toggle-hint">(Play sound on slot found)</span>
+                        </label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="soundEnabled" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-row">
+                        <label class="toggle-label">
+                            <span class="toggle-icon">🔐</span> Auto-Login
+                            <span class="toggle-hint">(Auto-fill login on session expire)</span>
+                        </label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="autoLoginEnabled" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div class="settings-actions">
+                    <button class="btn btn-primary" id="btnSaveSettings">
+                        💾 Save Configuration
+                    </button>
+                    <div class="settings-status" id="settingsStatus"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add New Client</h2>
+                <button class="modal-close" id="btnCloseModal">&times;</button>
+            </div>
+            <form id="clientForm">
+                <input type="hidden" id="clientId">
+
+                <!-- Account Section -->
+                <div class="form-section">
+                    <h3 class="section-title">🔐 Account</h3>
+                    <div class="form-grid">
+                        <div class="form-group photo-upload-group full-width">
+                            <label>Profile Photo</label>
+                            <div class="photo-upload-container">
+                                <div class="photo-preview" id="photoPreview">
+                                    <span class="photo-placeholder">👤</span>
+                                </div>
+                                <div class="photo-controls">
+                                    <input type="file" id="profilePhoto" accept="image/*" class="hidden-input">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btnSelectPhoto">📷 Select
+                                        Photo</button>
+                                    <button type="button" class="btn btn-danger btn-sm hidden-input"
+                                        id="btnRemovePhoto">✕ Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email *</label>
+                            <input type="email" id="email" required placeholder="user@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password *</label>
+                            <input type="password" id="password" required placeholder="••••••••">
+                        </div>
+                        <div class="form-group">
+                            <label for="otpSecret">OTP Secret (optional)</label>
+                            <input type="text" id="otpSecret" placeholder="TOTP secret key">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Target Section -->
+                <div class="form-section">
+                    <h3 class="section-title">🎯 Target Configuration</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="center">Center</label>
+                            <select id="center">
+                                <option value="">Select Center...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="visaType">Visa Type</label>
+                            <select id="visaType">
+                                <option value="">Select Visa Type...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="visaSubType">Visa SubType</label>
+                            <input type="text" id="visaSubType" placeholder="e.g., 201">
+                        </div>
+                        <div class="form-group">
+                            <label for="category">Category</label>
+                            <select id="category">
+                                <option value="">Select Category...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Applicant Details Section -->
+                <div class="form-section">
+                    <h3 class="section-title">👤 Applicant Details</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="firstName">First Name *</label>
+                            <input type="text" id="firstName" required placeholder="John">
+                        </div>
+                        <div class="form-group">
+                            <label for="lastName">Last Name *</label>
+                            <input type="text" id="lastName" required placeholder="Doe">
+                        </div>
+                        <div class="form-group">
+                            <label for="dateOfBirth">Date of Birth</label>
+                            <input type="date" id="dateOfBirth">
+                        </div>
+                        <div class="form-group">
+                            <label for="nationality">Nationality</label>
+                            <input type="text" id="nationality" placeholder="e.g., Morocco">
+                        </div>
+                        <div class="form-group">
+                            <label for="passportNumber">Passport Number *</label>
+                            <input type="text" id="passportNumber" required placeholder="AB123456">
+                        </div>
+                        <div class="form-group">
+                            <label for="passportExpiry">Passport Expiry</label>
+                            <input type="date" id="passportExpiry">
+                        </div>
+                        <div class="form-group">
+                            <label for="issuePlace">Issue Place</label>
+                            <input type="text" id="issuePlace" placeholder="e.g., Casablanca">
+                        </div>
+                        <div class="form-group">
+                            <label for="phone">Phone</label>
+                            <input type="tel" id="phone" placeholder="+212600000000">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Form Actions -->
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btnCancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Client</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+
+</html>

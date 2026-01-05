@@ -1,0 +1,59 @@
+{
+    "manifest_version": 3,
+    "name": "Antigravity Operator",
+    "version": "1.2.4",
+    "description": "Hive automation system operator for BLS Visa portals",
+    "permissions": [
+        "cookies",
+        "webRequest",
+        "webRequestAuthProvider",
+        "storage",
+        "alarms",
+        "scripting",
+        "declarativeNetRequest",
+        "notifications",
+        "proxy",
+        "browsingData"
+    ],
+    "host_permissions": [
+        "https://www.blsspainmorocco.net/*",
+        "https://blsspainmorocco.net/*",
+        "*://*.blsportugal.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://*.blsspainmorocco.net/*",
+                "*://*.blsportugal.com/*"
+            ],
+            "js": [
+                "fingerprint_spoof.js"
+            ],
+            "run_at": "document_start",
+            "world": "MAIN"
+        },
+        {
+            "matches": [
+                "*://*.blsspainmorocco.net/*",
+                "*://*.blsportugal.com/*"
+            ],
+            "js": [
+                "navigator.js",
+                "login_manager.js",
+                "form_filler.js",
+                "content.js"
+            ],
+            "run_at": "document_start",
+            "all_frames": true
+        }
+    ],
+    "options_page": "options.html",
+    "action": {
+        "default_title": "Antigravity Operator",
+        "default_popup": "popup.html"
+    }
+}
