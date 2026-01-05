@@ -30,9 +30,7 @@
                 "*://*.blsspainmorocco.net/*",
                 "*://*.blsportugal.com/*"
             ],
-            "js": [
-                "fingerprint_spoof.js"
-            ],
+            "js": [],
             "run_at": "document_start",
             "world": "MAIN"
         },
