@@ -782,30 +782,32 @@ async function solveGridCaptcha() {
                     return false;
                 }
 
-            } catch (error) {
-                console.error('[LoginManager] Error in solveGridCaptcha:', error);
-                return false;
-            }
+            } // End of outer if (success)
+
+        } catch (error) {
+            console.error('[LoginManager] Error in solveGridCaptcha:', error);
+            return false;
         }
+    }
 
         function reset() {
-            loginAttempts = 0;
-            isLoggingIn = false;
-        }
+        loginAttempts = 0;
+        isLoggingIn = false;
+    }
 
-        // ============================================================================
-        // EXPORTS
-        // ============================================================================
+    // ============================================================================
+    // EXPORTS
+    // ============================================================================
 
-        if (typeof globalThis !== 'undefined') {
-            globalThis.AntigravityLoginManager = {
-                attemptLogin,
-                reset,
-                getLoginFields,
-                diagnoseDOM,
-                solveGridCaptcha,
-                humanClick  // Added for Navigator to use
-            };
-        }
+    if (typeof globalThis !== 'undefined') {
+        globalThis.AntigravityLoginManager = {
+            attemptLogin,
+            reset,
+            getLoginFields,
+            diagnoseDOM,
+            solveGridCaptcha,
+            humanClick  // Added for Navigator to use
+        };
+    }
 
-        console.log('[LoginManager] Dynamic 2-Step Logic Loaded');
+    console.log('[LoginManager] Dynamic 2-Step Logic Loaded');
