@@ -706,58 +706,71 @@ async function attemptAutoLogin() {
     try {
         // Check if LoginManager is available
         if (!globalThis.AntigravityLoginManager) {
-            console.warn('[Antigravity] LoginManager not loaded');
-            isAutoLoginPending = false; // CRITICAL: Release lock
+            console.warn('[Antigravity] LoginManager not loaded (Global Object Missing)');
+            isAutoLoginPending = false;
             clearTimeout(lockTimeout);
             return;
         }
 
-        // Request active client data from background
-        chrome.runtime.sendMessage({ type: 'GET_ACTIVE_CLIENT' }, async (response) => {
-            try {
-                if (chrome.runtime.lastError) {
-                    console.warn('[Antigravity] Could not get active client:', chrome.runtime.lastError.message);
-                    return;
-                }
+        console.log('[Antigravity] 🔑 Requesting Active Client...');
 
-                if (response?.success && response.client) {
-                    console.log('[Antigravity] 🔐 Auto-login with:', response.client.email);
-
-                    // Small delay to ensure page is fully loaded
-                    await new Promise(r => setTimeout(r, 500));
-
-                    const result = await globalThis.AntigravityLoginManager.attemptLogin(response.client);
-                    console.log('[Antigravity] Auto-login result:', result);
-
-                    // Notify popup
-                    chrome.runtime.sendMessage({
-                        type: 'LOG_UPDATE',
-                        payload: {
-                            message: result.success ? '🔐 Login form submitted' : `❌ Login failed: ${result.reason}`,
-                            level: result.success ? 'success' : 'error'
-                        }
-                    }).catch(() => { });
-
-                    // RETRY LOGIC for FORM_NOT_FOUND
-                    // If page loaded but form rendered late, we must retry
-                    if (!result.success && result.reason === 'FORM_NOT_FOUND') {
-                        console.warn('[Antigravity] ⚠️ Form not found yet. Retrying detection in 2s...');
-                        setTimeout(() => runDetection(), 2000);
-                    }
-                } else {
-                    console.log('[Antigravity] No active client for auto-login');
-                }
-            } catch (err) {
-                console.error('[Antigravity] Inner auto-login error:', err);
-            } finally {
-                // Only release if we are done with the async chain
-                // In this specific structure, the callback IS the end of the chain
-                isAutoLoginPending = false;
-                clearTimeout(lockTimeout);
-            }
+        // Wrap sendMessage in Promise for clean await
+        const response = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ type: 'GET_ACTIVE_CLIENT' }, resolve);
         });
+
+        if (chrome.runtime.lastError) {
+            console.warn('[Antigravity] Runtime Error getting client:', chrome.runtime.lastError.message);
+            return;
+        }
+
+        if (!response || !response.client) {
+            console.warn('[Antigravity] ⚠️ No active client returned from Background.');
+            return;
+        }
+
+        const client = response.client;
+        console.log(`[Antigravity] 👤 Attempting login for: ${client.email}`);
+
+        // Small delay to ensure DOM is ready
+        await new Promise(r => setTimeout(r, 500));
+
+        // EXECUTE LOGIN
+        const result = await globalThis.AntigravityLoginManager.attemptLogin(client);
+
+        if (result.success) {
+            console.log(`[Antigravity] ✅ Login Action Result: ${result.status}`);
+
+            // Notify popup
+            chrome.runtime.sendMessage({
+                type: 'LOG_UPDATE',
+                payload: {
+                    message: `🔐 Form Submitted: ${result.status}`,
+                    level: 'success'
+                }
+            }).catch(() => { });
+
+        } else {
+            console.error(`[Antigravity] ❌ Login Failed: ${result.reason}`);
+
+            // Handle specific failures
+            if (result.reason === 'FORM_NOT_FOUND') {
+                console.warn('[Antigravity] ⚠️ Retrying detection in 2s...');
+                setTimeout(() => runDetection(), 2000);
+            }
+
+            chrome.runtime.sendMessage({
+                type: 'LOG_UPDATE',
+                payload: {
+                    message: `❌ Auto-login Failed: ${result.reason}`,
+                    level: 'error'
+                }
+            }).catch(() => { });
+        }
+
     } catch (error) {
-        console.error('[Antigravity] Auto-login setup error:', error);
+        console.error('[Antigravity] 💥 Error in attemptAutoLogin:', error);
+    } finally {
         isAutoLoginPending = false;
         clearTimeout(lockTimeout);
     }
