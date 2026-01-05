@@ -416,42 +416,88 @@ function getEffectiveZIndex(el) {
 }
 
 /**
- * Extract the 9 visible grid images using STRICT size filtering.
- * Only accepts images between 50-150px to exclude icons/logos.
+ * Extract the 9 grid images by finding the container near the instruction text.
+ * Uses XPath to locate "Please select" label, then finds images in nearby container.
  */
 function getVisualGrid() {
-    console.log('[LoginManager] 🔬 TURBO: Strict Grid Detection (50-150px)...');
+    console.log('[LoginManager] 🔬 Finding grid container near instruction text...');
 
-    // Get ALL images on the page
-    const allImages = Array.from(document.querySelectorAll('img'));
-    console.log(`[LoginManager] � Total images on page: ${allImages.length}`);
+    // Step 1: Find the instruction label using XPath
+    let label = null;
+    try {
+        const xpath = "//*[contains(text(),'Please select')]";
+        label = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    } catch (e) {
+        console.warn('[LoginManager] XPath failed, falling back to querySelector');
+    }
 
-    // STRICT Filter: 50-150px, visible, on screen
+    // Fallback: try querySelector
+    if (!label) {
+        const candidates = document.querySelectorAll('p, span, div, label');
+        for (const el of candidates) {
+            if (el.textContent?.includes('Please select')) {
+                label = el;
+                break;
+            }
+        }
+    }
+
+    if (!label) {
+        console.warn('[LoginManager] ⚠️ Instruction label not found!');
+        return [];
+    }
+
+    console.log(`[LoginManager] 📍 Found instruction: "${label.textContent?.substring(0, 50)}..."`);
+
+    // Step 2: Find the grid container (sibling, parent's sibling, or nearest table/div)
+    let container = label.nextElementSibling;
+
+    // Try parent's next sibling if direct sibling has no images
+    if (!container || container.querySelectorAll('img').length < 9) {
+        container = label.parentElement?.nextElementSibling;
+    }
+
+    // Try finding a table nearby
+    if (!container || container.querySelectorAll('img').length < 9) {
+        container = label.closest('div')?.querySelector('table');
+    }
+
+    // Last resort: use parent container
+    if (!container || container.querySelectorAll('img').length < 9) {
+        container = label.parentElement || document.body;
+    }
+
+    console.log(`[LoginManager] � Container: ${container.tagName}, Images inside: ${container.querySelectorAll('img').length}`);
+
+    // Step 3: Get images from container
+    const allImages = Array.from(container.querySelectorAll('img'));
+
+    // Step 4: Filter - must have onclick OR be inside clickable parent, and proper size
     const gridImages = allImages.filter(img => {
         const rect = img.getBoundingClientRect();
 
         // Must be visible
         if (img.offsetParent === null) return false;
 
-        // STRICT SIZE: Between 50px and 150px
+        // Size check (30-200px range)
         const w = rect.width;
         const h = rect.height;
-        if (w <= 50 || w >= 150) return false;
-        if (h <= 50 || h >= 150) return false;
+        if (w < 30 || w > 200) return false;
+        if (h < 30 || h > 200) return false;
 
-        // Must be on screen (positive top)
-        if (rect.top <= 0) return false;
+        // Must be clickable (has onclick or parent has onclick)
+        const isClickable = img.onclick || img.hasAttribute('onclick') ||
+            img.closest('[onclick]') || img.closest('td') || img.closest('a');
 
-        return true;
+        return isClickable;
     });
 
-    console.log(`[LoginManager] ✅ After strict filter: ${gridImages.length} images`);
+    console.log(`[LoginManager] ✅ Found ${gridImages.length} clickable images`);
 
-    // Sort by position: Top->Bottom, Left->Right (Row-major)
+    // Step 5: Sort by position (Row-major: Top->Bottom, Left->Right)
     gridImages.sort((a, b) => {
         const rA = a.getBoundingClientRect();
         const rB = b.getBoundingClientRect();
-        // Same row if within 15px
         if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
         return rA.left - rB.left;
     });
@@ -459,41 +505,6 @@ function getVisualGrid() {
     // Take first 9
     const finalGrid = gridImages.slice(0, 9);
     console.log(`[LoginManager] 🗺️ Grid: Using ${finalGrid.length} images`);
-
-    // ================================================================
-    // VISUAL DEBUGGING: Draw red numbered overlays
-    // ================================================================
-    finalGrid.forEach((img, idx) => {
-        try {
-            // Remove existing overlay if any
-            const existingOverlay = img.parentElement?.querySelector('.debug-overlay');
-            if (existingOverlay) existingOverlay.remove();
-
-            // Create overlay
-            const overlay = document.createElement('div');
-            overlay.className = 'debug-overlay';
-            overlay.textContent = idx.toString();
-            overlay.style.cssText = `
-                position: absolute;
-                top: 0;
-                left: 0;
-                background: rgba(255, 0, 0, 0.8);
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 2px 6px;
-                border-radius: 4px;
-                z-index: 99999;
-                pointer-events: none;
-            `;
-
-            // Ensure parent is positioned
-            if (img.parentElement) {
-                img.parentElement.style.position = 'relative';
-                img.parentElement.appendChild(overlay);
-            }
-        } catch (e) { }
-    });
 
     return finalGrid;
 }
@@ -532,7 +543,12 @@ async function solveGridCaptcha() {
         // 3. Get Grid Images
         const gridImages = getVisualGrid();
         if (gridImages.length < 9) {
-            console.warn(`[LoginManager] ⚠️ Only ${gridImages.length} images found.`);
+            console.warn(`[LoginManager] ⚠️ Only ${gridImages.length} images found. Proceeding anyway.`);
+        }
+
+        if (gridImages.length === 0) {
+            console.error('[LoginManager] ❌ No grid images found!');
+            return false;
         }
 
         // 4. Convert to Base64
@@ -549,7 +565,7 @@ async function solveGridCaptcha() {
             }
         }));
 
-        console.log(`[LoginManager] 📸 ${processedImages.length} images ready`);
+        console.log(`[LoginManager] 📸 ${processedImages.length} images ready for API`);
 
         // 5. Call Background (Direct API Pipeline)
         const result = await new Promise(resolve => {
@@ -564,26 +580,38 @@ async function solveGridCaptcha() {
             }, resolve);
         });
 
-        // Handle API response
-        if (!result?.success) {
-            console.error('[LoginManager] ❌ API Failed!');
-            console.error('[LoginManager] 📦 Full API Response:', JSON.stringify(result, null, 2));
+        console.log('[LoginManager] 📦 API Result:', JSON.stringify(result));
+
+        // Handle API response - support multiple formats
+        if (!result) {
+            console.error('[LoginManager] ❌ No response from background!');
             return false;
         }
 
-        // Support both response formats: matches (indices) or solution (text array)
-        let matches = result.matches;
-        if (!matches && result.solution && Array.isArray(result.solution)) {
-            // Convert text solutions to indices by matching against target
-            matches = [];
+        // Parse matches from various response formats
+        let matches = [];
+
+        // Format 1: Direct matches array
+        if (result.matches && Array.isArray(result.matches)) {
+            matches = result.matches;
+        }
+        // Format 2: Solution array (text) - convert to indices
+        else if (result.solution && Array.isArray(result.solution)) {
             result.solution.forEach((val, idx) => {
-                if (val === target) matches.push(idx);
+                if (String(val) === String(target)) {
+                    matches.push(idx);
+                }
             });
         }
+        // Format 3: Error
+        else if (result.error) {
+            console.error('[LoginManager] ❌ API Error:', result.error);
+            return false;
+        }
 
-        if (!matches || matches.length === 0) {
-            console.warn('[LoginManager] ⚠️ No matches found.');
-            console.error('[LoginManager] 📦 Full API Response:', JSON.stringify(result, null, 2));
+        if (matches.length === 0) {
+            console.warn('[LoginManager] ⚠️ No matches found for target:', target);
+            console.log('[LoginManager] 📦 Raw solution:', result.solution);
             return false;
         }
 
