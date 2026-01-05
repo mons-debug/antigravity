@@ -172,14 +172,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'ROTATE_PROXY':
-      // Proxy Rotation Handler with FULL IDENTITY WIPE
-      console.log('[Antigravity] 🔄 Proxy rotation requested:', payload?.reason || 'Manual');
+      // 🧼 DEEP CLEAN ROTATION: Wipe & Reload (In-Tab)
+      console.log('[Antigravity] 🧼 DEEP CLEAN ROTATION requested:', payload?.reason || 'Manual');
 
       (async () => {
         const startTime = Date.now();
 
         // ============================================================
-        // STEP 1: ROTATE PROXY
+        // STEP A: ROTATE PROXY
         // ============================================================
         const result = await ProxyManager.rotate();
         if (!result.success) {
@@ -190,9 +190,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.log(`[Antigravity] ✅ New proxy: ${result.proxy}`);
 
         // ============================================================
-        // STEP 2: PARALLEL - Stealth Identity + Cookie/Cache Clear
+        // OPTIMIZATION: Send response immediately for snappy UI
         // ============================================================
-        console.log('[Antigravity] 🚀 Wiping identity (parallel)...');
+        sendResponse({ success: true, proxy: result.proxy, deepClean: true });
+
+        // ============================================================
+        // STEP B: PARALLEL - Stealth Identity + Cookie/Cache Wipe
+        // ============================================================
+        console.log('[Antigravity] 🧨 Wiping identity (parallel)...');
 
         const wipePromises = [];
 
@@ -221,7 +226,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           })().catch(e => console.warn('[Antigravity] ⚠️ Cookie error:', e.message))
         );
 
-        // Promise 3: AGGRESSIVE GLOBAL WIPE (Since origin matching is failing)
+        // Promise 3: AGGRESSIVE GLOBAL WIPE
         wipePromises.push(
           chrome.browsingData.remove(
             { since: 0 }, // Clear EVERYTHING from the beginning of time
@@ -231,13 +236,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               cache: true,
               cacheStorage: true,
               cookies: true,
-              localStorage: true, // This MUST be cleared for marker check to work
+              localStorage: true,
               indexedDB: true,
               serviceWorkers: true,
               formData: true,
               fileSystems: true,
               webSQL: true,
-              // We spare history/passwords for convenience, but wipe all tracking/storage
+              // Spare history/passwords for convenience
               history: false,
               passwords: false,
               downloads: false
@@ -246,46 +251,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .catch(e => console.warn('[Antigravity] ⚠️ Wipe error:', e.message))
         );
 
-
-
-        // Wait for all parallel operations
+        // Wait for all parallel wipe operations
         await Promise.allSettled(wipePromises);
 
         console.log(`[Antigravity] ⚡ Identity wipe completed in ${Date.now() - startTime}ms`);
 
         // ============================================================
-        // STEP 3: FAST RELOAD (minimal delay)
+        // STEP C: IN-TAB DEEP CLEAN - Clear Storage & Hard Reload
         // ============================================================
-        if (payload?.reloadTab) {
-          // Tiny delay just to ensure async operations flush
-          await new Promise(r => setTimeout(r, 100));
+        try {
+          const tabs = await chrome.tabs.query({ url: '*://*.blsspainmorocco.net/*' });
 
-          try {
-            if (sender?.tab?.id) {
-              // CRITICAL: Clear sessionStorage before reload (it persists otherwise)
-              try {
-                await chrome.scripting.executeScript({
-                  target: { tabId: sender.tab.id },
-                  func: () => { try { sessionStorage.clear(); } catch (e) { } }
-                });
-              } catch (e) { console.warn('[Antigravity] Script injection failed:', e); }
+          if (tabs.length > 0) {
+            const activeTab = tabs[0];
+            console.log(`[Antigravity] 🧼 Deep cleaning tab ${activeTab.id}...`);
 
-              chrome.tabs.reload(sender.tab.id);
-              console.log('[Antigravity] 🔄 Reloaded sender tab');
-            } else {
-              const tabs = await chrome.tabs.query({ url: '*://*.blsspainmorocco.net/*' });
-              if (tabs.length > 0) {
-                chrome.tabs.reload(tabs[0].id);
-                console.log('[Antigravity] 🔄 Reloaded BLS tab');
-              }
+            // Inject script to clear localStorage and sessionStorage
+            try {
+              await chrome.scripting.executeScript({
+                target: { tabId: activeTab.id },
+                func: () => {
+                  try {
+                    window.sessionStorage.clear();
+                    window.localStorage.clear();
+                    console.log('[DeepClean] Storage cleared');
+                  } catch (e) {
+                    console.warn('[DeepClean] Storage clear error:', e);
+                  }
+                }
+              });
+              console.log('[Antigravity] 🗑️ In-tab storage cleared');
+            } catch (scriptErr) {
+              console.warn('[Antigravity] Script injection failed:', scriptErr.message);
             }
-          } catch (reloadErr) {
-            console.warn('[Antigravity] Reload error:', reloadErr.message);
+
+            // Small delay to ensure script execution completes
+            await new Promise(r => setTimeout(r, 200));
+
+            // Hard reload with cache bypass
+            await chrome.tabs.reload(activeTab.id, { bypassCache: true });
+            console.log('[Antigravity] 🔄 Hard reload initiated (cache bypassed)');
+          } else {
+            console.log('[Antigravity] ℹ️ No BLS tabs found to clean');
           }
+        } catch (reloadErr) {
+          console.error('[Antigravity] ❌ Reload error:', reloadErr.message);
         }
 
-        console.log(`[Antigravity] 🎉 Full rotation completed in ${Date.now() - startTime}ms`);
-        sendResponse({ success: true, proxy: result.proxy });
+        console.log(`[Antigravity] 🎉 DEEP CLEAN ROTATION completed in ${Date.now() - startTime}ms`);
       })();
 
       return true; // Keep message channel open for async response

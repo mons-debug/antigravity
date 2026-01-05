@@ -394,7 +394,9 @@ async function handleBookingGate() {
     try {
         await randomDelay(100, 200); // Fast startup
 
-        // Check if this is a GRID captcha (like login) or TEXT captcha
+        // ================================================================
+        // CHECK 1: GRID CAPTCHA (like login page)
+        // ================================================================
         const gridImages = document.querySelectorAll('img[src*="cap"]');
         const hasGridCaptcha = gridImages.length >= 9 ||
             document.body.innerText.includes('select all boxes') ||
@@ -404,98 +406,92 @@ async function handleBookingGate() {
             console.log('[Navigator] 🎯 Grid CAPTCHA detected on booking gate');
 
             // Use the same grid solving logic as login
-            if (typeof globalThis.AntigravityLoginManager !== 'undefined') {
-                // Trigger grid captcha solving via LoginManager's exposed method
-                // We need to call the grid solver directly
-                const solved = await solveBookingGridCaptcha();
-                if (solved) {
-                    console.log('[Navigator] ✅ Booking Grid CAPTCHA solved!');
+            const solved = await solveBookingGridCaptcha();
+            if (solved) {
+                console.log('[Navigator] ✅ Booking Grid CAPTCHA solved!');
 
-                    // NEW: Click Submit Button - Optimized Speed (1s)
-                    console.log('[Navigator] ⏳ Waiting 1.0s before submitting...');
-                    await new Promise(r => setTimeout(r, 800 + Math.random() * 400));
+                // Wait before submitting (1 second with randomness)
+                console.log('[Navigator] ⏳ Waiting 1.0s before submitting...');
+                await new Promise(r => setTimeout(r, 800 + Math.random() * 400));
 
-                    const submitBtn = document.querySelector('input[type="submit"]') ||
-                        document.querySelector('button[type="submit"]') ||
-                        document.querySelector('#btnSubmit') ||
-                        document.querySelector('input.btn-warning') ||
-                        document.evaluate("//button[contains(text(),'Submit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                // Find and click Submit button
+                const submitBtn = document.querySelector('input[type="submit"]') ||
+                    document.querySelector('button[type="submit"]') ||
+                    document.querySelector('#btnSubmit') ||
+                    document.querySelector('input.btn-warning') ||
+                    document.evaluate("//button[contains(text(),'Submit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
 
-                    if (submitBtn) {
-                        console.log('[Navigator] 👆 Clicking Submit button...');
-                        // ROBUST CLICK STRATEGY:
-                        // Use SIMPLE click for Submit to avoid anti-bot triggering on complex events
-                        try {
-                            submitBtn.click();
-                        } catch (e) {
-                            console.error('[Navigator] Submit click failed:', e);
-                            try { submitBtn.click(); } catch (err) { }
-                        }
+                if (submitBtn) {
+                    console.log('[Navigator] 👆 Clicking Submit button...');
+                    try {
+                        submitBtn.click();
+                    } catch (e) {
+                        console.error('[Navigator] Submit click failed:', e);
+                        try { submitBtn.click(); } catch (err) { }
                     }
+                    return { success: true, action: 'GATE_GRID_SOLVED' };
                 } else {
                     console.warn('[Navigator] ⚠️ Submit button not found on booking gate!');
                 }
 
                 return { success: true, action: 'GATE_GRID_SOLVED' };
             }
+
+            console.warn('[Navigator] Grid captcha solving failed');
+            return { success: false, reason: 'GRID_CAPTCHA_FAILED' };
         }
 
-        console.warn('[Navigator] Grid captcha solving failed, waiting for retry...');
-        // Don't return false immediately, allow content.js to retry without "IN_PROGRESS" lock if we failed here
+        // ================================================================
+        // CHECK 2: TEXT CAPTCHA (traditional captcha with input)
+        // ================================================================
+        console.log('[Navigator] Checking for Text CAPTCHA...');
+        const checkSelectors = NAVIGATOR_CONFIG.selectors.bookingGate;
+        const captchaImg = findElement([checkSelectors.captchaImage]);
+        const captchaInput = findElement([checkSelectors.captchaInput]);
+        const verifyBtn = findElement([checkSelectors.verifyButton]);
+
+        if (captchaImg && captchaInput && verifyBtn) {
+            console.log('[Navigator] Found Text CAPTCHA, solving...');
+
+            let base64Image = null;
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = captchaImg.naturalWidth || captchaImg.width;
+                canvas.height = captchaImg.naturalHeight || captchaImg.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(captchaImg, 0, 0);
+                base64Image = canvas.toDataURL('image/png').split(',')[1];
+            } catch (e) {
+                console.error('[Navigator] Failed to capture captcha:', e);
+                return { success: false, reason: 'CAPTURE_FAILED' };
+            }
+
+            if (base64Image) {
+                const response = await chrome.runtime.sendMessage({
+                    type: 'SOLVE_CAPTCHA',
+                    payload: { image: base64Image }
+                });
+
+                if (response && response.success && response.solution) {
+                    console.log('[Navigator] Text CAPTCHA Solved:', response.solution);
+                    captchaInput.value = response.solution;
+                    captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    await randomDelay(100, 200);
+                    trustedClick(verifyBtn);
+                    return { success: true, action: 'GATE_TEXT_SOLVED' };
+                }
+            }
+        }
+
+        // No captcha found
+        return { success: false, reason: 'CAPTCHA_NOT_FOUND_OR_FAILED' };
+
+    } catch (error) {
+        console.error('[Navigator] Gate error:', error);
+        return { success: false, error: error.message };
+    } finally {
         isNavigating = false;
-        return { success: false, reason: 'GRID_CAPTCHA_FAILED' };
     }
-
-        // TEXT CAPTCHA handling (original logic)
-        }
-    }
-
-// TEXT CAPTCHA handling (original logic)
-const checkSelectors = NAVIGATOR_CONFIG.selectors.bookingGate;
-const captchaImg = findElement([checkSelectors.captchaImage]);
-const captchaInput = findElement([checkSelectors.captchaInput]);
-const verifyBtn = findElement([checkSelectors.verifyButton]);
-
-if (captchaImg && captchaInput && verifyBtn) {
-    console.log('[Navigator] Found Text CAPTCHA, solving...');
-
-    let base64Image = null;
-    try {
-        const canvas = document.createElement('canvas');
-        canvas.width = captchaImg.naturalWidth || captchaImg.width;
-        canvas.height = captchaImg.naturalHeight || captchaImg.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(captchaImg, 0, 0);
-        base64Image = canvas.toDataURL('image/png').split(',')[1];
-    } catch (e) {
-        console.error('[Navigator] Failed to capture captcha:', e);
-        return { success: false, reason: 'CAPTURE_FAILED' };
-    }
-
-    if (base64Image) {
-        const response = await chrome.runtime.sendMessage({
-            type: 'SOLVE_CAPTCHA',
-            payload: { image: base64Image }
-        });
-
-        if (response && response.success && response.solution) {
-            console.log('[Navigator] Text CAPTCHA Solved:', response.solution);
-            captchaInput.value = response.solution;
-            captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
-            await randomDelay(100, 200);
-            trustedClick(verifyBtn);
-            return { success: true, action: 'GATE_TEXT_SOLVED' };
-        }
-    }
-}
-
-return { success: false, reason: 'CAPTCHA_NOT_FOUND_OR_FAILED' };
-} catch (error) {
-    console.error('[Navigator] Gate error:', error);
-    return { success: false, error: error.message };
-} finally {
-    isNavigating = false;
-}
 }
 
 /**

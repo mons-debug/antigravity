@@ -114,6 +114,36 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Wait for session stability after Nuclear Rotation to prevent captcha loops.
+ * Waits for document to be fully loaded plus a random settling delay.
+ */
+async function waitForStability() {
+    console.log('[LoginManager] ⏳ Waiting for session stability...');
+
+    // Wait for document readyState to be complete
+    if (document.readyState !== 'complete') {
+        await new Promise(resolve => {
+            const checkReady = () => {
+                if (document.readyState === 'complete') {
+                    window.removeEventListener('load', checkReady);
+                    resolve();
+                }
+            };
+            window.addEventListener('load', checkReady);
+            // Fallback timeout
+            setTimeout(resolve, 3000);
+        });
+    }
+
+    // Additional random settling delay (2000ms - 3000ms)
+    const settlingDelay = 2000 + Math.random() * 1000;
+    console.log(`[LoginManager] 💤 Settling for ${Math.round(settlingDelay)}ms...`);
+    await sleep(settlingDelay);
+
+    console.log('[LoginManager] ✅ Session stable');
+}
+
 // ============================================================================
 // STEP DETECTION & FIELD FINDING
 // ============================================================================
@@ -213,6 +243,11 @@ async function attemptLogin(clientData) {
     console.log(`[LoginManager] 🔐 Login attempt ${loginAttempts}...`);
 
     try {
+        // ================================================================
+        // CRITICAL: Wait for session stability before engaging
+        // ================================================================
+        await waitForStability();
+
         const state = getLoginFields();
         console.log(`[LoginManager] Detection Mode: ${state.mode}`);
 
@@ -659,6 +694,14 @@ async function solveGridCaptcha() {
                     await sleep(100 + Math.random() * 50);
                 }
             }
+
+            // ================================================================
+            // SAFETY PAUSE: Allow selection network requests to complete
+            // before Submit button is clicked (1-2 seconds)
+            // ================================================================
+            const safetyPause = 1000 + Math.random() * 1000;
+            console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
+            await sleep(safetyPause);
 
             console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
             return true;
