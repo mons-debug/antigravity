@@ -35,12 +35,26 @@ import './socket_client.js';
     console.log('[Antigravity] 🚫 CLEARING PROXY ON LOAD (Direct Connection)...');
     await ProxyManager.clear();
     console.log('[Antigravity] ✅ Proxy cleared - using direct connection');
+    console.log('[Antigravity] ✅ Proxy cleared - using direct connection');
   } catch (e) {
     console.warn('[Antigravity] Could not clear proxy:', e);
   }
+
+  // FORCE CLEAR DNR RULES (Zombie Rule Fix)
+  try {
+    console.log('[Antigravity] 🧹 Clearing all dynamic rules...');
+    const rules = await chrome.declarativeNetRequest.getDynamicRules();
+    const ruleIds = rules.map(rule => rule.id);
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: ruleIds
+    });
+    console.log('[Antigravity] ✅ All dynamic rules cleared.');
+  } catch (e) {
+    console.warn('[Antigravity] Failed to clear rules:', e);
+  }
 })();
 
-// Initialize Stealth on startup (AFTER proxy clear)
+// Initialize Stealth on startup (AFTER proxy/rule clear)
 StealthManager.init().catch(err => console.warn('[Antigravity] Stealth init failed:', err));
 
 // ============================================================================
