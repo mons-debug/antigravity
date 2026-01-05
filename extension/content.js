@@ -45,6 +45,30 @@ const CONFIG = {
 };
 
 // ============================================================================
+// BLANK PAGE WATCHDOG (Recovers from 502/504 hangs)
+// ============================================================================
+(function initWatchdog() {
+    // Only run in top frame
+    if (window.self !== window.top) return;
+
+    // Give the page 5 seconds to show SOME content
+    setTimeout(() => {
+        // Skip if we already rotated/reloaded
+        if (window.hasTriggeredRotation) return;
+
+        const bodyText = document.body?.innerText || '';
+        const htmlLen = document.documentElement.innerHTML.length;
+
+        // Condition 1: Almost empty body (typical 502/504 or blank render)
+        // Condition 2: "White screen of death"
+        if (bodyText.length < 50 && htmlLen < 500) {
+            console.error('[Watchdog] 🚨 Blank page detected after 5s! Reloading...');
+            window.location.reload();
+        }
+    }, 5000);
+})();
+
+// ============================================================================
 // AUTO-LOGIN LOCK (Prevents race condition / spam loop)
 // ============================================================================
 let isAutoLoginPending = false;

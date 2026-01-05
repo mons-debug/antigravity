@@ -687,16 +687,28 @@ async function solveGridCaptcha() {
                 gridImages = finalGridImages;
 
                 // 5. Send to Server
-                // 5. Send to Server
-                const response = await fetch('http://localhost:3000/solve-grid-captcha', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        images: processedImages,
-                        target: target,
-                        apiKey: settings.apiKey
-                    })
-                });
+                // 5. Send to Server with Timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+                let response;
+                try {
+                    response = await fetch('http://localhost:3000/solve-grid-captcha', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            images: processedImages,
+                            target: target,
+                            apiKey: settings.apiKey
+                        }),
+                        signal: controller.signal
+                    });
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    console.error('[LoginManager] ❌ IDP Fetch Error (Timeout/Network):', err);
+                    return false;
+                }
+                clearTimeout(timeoutId);
 
                 // 🚨 HANDLE BANS (430 / 403 / 429) -> AUTO ROTATE & RELOAD
                 if (response.status === 430 || response.status === 403 || response.status === 429) {
