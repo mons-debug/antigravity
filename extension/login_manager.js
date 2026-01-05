@@ -590,234 +590,234 @@ async function solveGridCaptcha() {
             const bodyText = document.body.innerText;
             const match = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
             if (match) {
+                target = match[1];
                 console.log(`[LoginManager] 🎯 Final target number: "${target}"`);
-
-                // ================================================================
-                // 3. CAPTURE & PROCESS IMAGES (Spatial Clustering)
-                // Find the 3x3 grid structure to exclude logos/icons
-                // ================================================================
-
-                // Helper: get center of element
-                const getCenter = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-
-                // Helper: check if two images are "aligned" (in same grid system)
-                const isAligned = (r1, r2) => {
-                    const verticalDist = Math.abs(r1.top - r2.top);
-                    const horizontalDist = Math.abs(r1.left - r2.left);
-                    const sizeDiff = Math.abs(r1.width - r2.width) + Math.abs(r1.height - r2.height);
-
-                    // Should be roughly same size
-                    if (sizeDiff > 20) return false;
-
-                    // Should be either same row (small vertical diff) or same column (small horizontal diff)
-                    // AND within reasonable distance (grid gap is usually small)
-                    return (verticalDist < 20 && horizontalDist < 250) || (horizontalDist < 20 && verticalDist < 250);
-                };
-
-                // Find clusters
-                const clusters = [];
-                const processed = new Set();
-
-                // Sort by Y first
-                captchaImgs.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-
-                for (let i = 0; i < captchaImgs.length; i++) {
-                    if (processed.has(i)) continue;
-                    const currentCluster = [captchaImgs[i]];
-                    processed.add(i);
-                    const r1 = captchaImgs[i].getBoundingClientRect();
-
-                    for (let j = i + 1; j < captchaImgs.length; j++) {
-                        if (processed.has(j)) continue;
-                        const r2 = captchaImgs[j].getBoundingClientRect();
-
-                        if (isAligned(r1, r2)) {
-                            currentCluster.push(captchaImgs[j]);
-                            processed.add(j);
-                        }
-                    }
-                    if (currentCluster.length >= 9) clusters.push(currentCluster);
-                }
-
-                // Pick the best cluster (closest to 9 images, centered, most "grid-like")
-                let bestCluster = clusters.sort((a, b) => {
-                    // Prefer exact 9
-                    const diffA = Math.abs(a.length - 9);
-                    const diffB = Math.abs(b.length - 9);
-                    if (diffA !== diffB) return diffA - diffB;
-                    return 0;
-                })[0];
-
-                // Fallback: if no cluster found, use naive list
-                let finalGridImages = bestCluster ? bestCluster.slice(0, 9) : captchaImgs.slice(0, 9);
-
-                // Re-sort the final grid (Row-major order: Top->Bottom, Left->Right)
-                finalGridImages.sort((a, b) => {
-                    const rA = a.getBoundingClientRect();
-                    const rB = b.getBoundingClientRect();
-                    // Fuzzy row check (allow 10px variance)
-                    if (Math.abs(rA.top - rB.top) > 15) {
-                        return rA.top - rB.top;
-                    }
-                    return rA.left - rB.left;
-                });
-
-                console.log(`[LoginManager] 🗺️ Reconstructed grid: ${finalGridImages.length} images selected.`);
-
-                // Convert key images for solving
-                const processedImages = await Promise.all(finalGridImages.map(async img => {
-                    // Highlight for debug check
-                    // try { img.style.outline = '2px dashed blue'; } catch(e){}
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.naturalWidth || img.width;
-                        canvas.height = img.naturalHeight || img.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-                        return canvas.toDataURL('image/png');
-                    } catch (e) {
-                        console.warn('[LoginManager] Canvas error, falling back to src');
-                        return img.src;
-                    }
-                }));
-
-                console.log(`[LoginManager] 📸 Images converted in ${Date.now() - startWait}ms`);
-
-                // Use the SORTED images for clicking later
-                gridImages = finalGridImages;
-
-                // 5. Send to Server
-                // 5. Send to Server with Timeout
-                // ================================================================
-                // 3. CAPTURE & PROCESS IMAGES (Spatial Clustering)
-                // ================================================================
-                // ... (Image processing logic remains same until fetch) ...
-                // Assuming processedImages is ready (re-implementing the end block):
-
-                // 5. Send to Server with Timeout
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-                let response;
-                try {
-                    response = await fetch('http://localhost:3000/solve-grid-captcha', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            images: processedImages,
-                            target: target,
-                            apiKey: settings.apiKey
-                        }),
-                        signal: controller.signal
-                    });
-                } catch (err) {
-                    clearTimeout(timeoutId);
-                    console.error('[LoginManager] ❌ IDP Fetch Error (Timeout/Network):', err);
-                    return false;
-                }
-                clearTimeout(timeoutId);
-
-                // 🚨 HANDLE BANS (430 / 403 / 429)
-                if (response.status === 430 || response.status === 403 || response.status === 429) {
-                    console.error('[LoginManager] 🚨 IP BANNED! Status:', response.status);
-                    chrome.runtime.sendMessage({
-                        type: 'ROTATE_PROXY',
-                        reloadTab: true,
-                        reason: 'IP_BANNED_' + response.status
-                    }).catch(() => { });
-                    return false;
-                }
-
-                const result = await response.json();
-
-                // ERROR HANDLING (Guard Clause)
-                if (!result.success || !result.matches) {
-                    console.error('[LoginManager] Server failed to solve:', result.error || 'Unknown error');
-                    return false;
-                }
-
-                console.log('[LoginManager] ✅ Server returned matches:', result.matches);
-
-                // CRITICAL: Abort if no matches
-                if (result.matches.length === 0) {
-                    console.warn('[LoginManager] ⚠️ AI found 0 matches. Aborting submit.');
-                    return false;
-                }
-
-                // 6. Click Matches
-                console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches...`);
-
-                for (const idx of result.matches) {
-                    const img = gridImages[idx];
-                    if (img) {
-                        console.log(`[LoginManager] 👆 Clicking cell ${idx}`);
-
-                        // Find clickable element
-                        let clickTarget = img;
-                        const parent = img.parentElement;
-                        const grandparent = parent?.parentElement;
-
-                        if (parent && (parent.onclick || parent.getAttribute('onclick'))) {
-                            clickTarget = parent;
-                        } else if (grandparent && (grandparent.onclick || grandparent.getAttribute('onclick'))) {
-                            clickTarget = grandparent;
-                        } else if (img.closest('[onclick]')) {
-                            clickTarget = img.closest('[onclick]');
-                        }
-
-                        await humanClick(clickTarget);
-
-                        // Visual Feedback
-                        try {
-                            img.style.border = '4px solid #00ff00';
-                            img.style.boxSizing = 'border-box';
-                            if (clickTarget !== img) clickTarget.style.border = '2px solid #00ff00';
-                        } catch (e) { }
-
-                        // Dispatch Events
-                        try {
-                            const events = ['change', 'input'];
-                            events.forEach(evt => {
-                                try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
-                            });
-                        } catch (e) { }
-
-                        await sleep(100 + Math.random() * 50);
-                    }
-                }
-
-                // Safety Pause
-                const safetyPause = 1000 + Math.random() * 1000;
-                console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
-                await sleep(safetyPause);
-
-                console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
-                return true;
-
-            } catch (error) {
-                console.error('[LoginManager] Error in solveGridCaptcha:', error);
-                return false;
             }
         }
 
-        function reset() {
-            loginAttempts = 0;
-            isLoggingIn = false;
+        if (!target) {
+            console.warn('[LoginManager] ⚠️ Could not find target number. Aborting.');
+            return false;
         }
 
-        // ============================================================================
-        // EXPORTS
-        // ============================================================================
+        // ================================================================
+        // 3. CAPTURE & PROCESS IMAGES (Spatial Clustering)
+        // Find the 3x3 grid structure to exclude logos/icons
+        // ================================================================
 
-        if (typeof globalThis !== 'undefined') {
-            globalThis.AntigravityLoginManager = {
-                attemptLogin,
-                reset,
-                getLoginFields,
-                diagnoseDOM,
-                solveGridCaptcha,
-                humanClick  // Added for Navigator to use
-            };
+        // Helper: get center of element
+        const getCenter = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+
+        // Helper: check if two images are "aligned" (in same grid system)
+        const isAligned = (r1, r2) => {
+            const verticalDist = Math.abs(r1.top - r2.top);
+            const horizontalDist = Math.abs(r1.left - r2.left);
+            const sizeDiff = Math.abs(r1.width - r2.width) + Math.abs(r1.height - r2.height);
+
+            // Should be roughly same size
+            if (sizeDiff > 20) return false;
+
+            // Should be either same row (small vertical diff) or same column (small horizontal diff)
+            // AND within reasonable distance (grid gap is usually small)
+            return (verticalDist < 20 && horizontalDist < 250) || (horizontalDist < 20 && verticalDist < 250);
+        };
+
+        // Find clusters
+        const clusters = [];
+        const processed = new Set();
+
+        // Sort by Y first
+        captchaImgs.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+
+        for (let i = 0; i < captchaImgs.length; i++) {
+            if (processed.has(i)) continue;
+            const currentCluster = [captchaImgs[i]];
+            processed.add(i);
+            const r1 = captchaImgs[i].getBoundingClientRect();
+
+            for (let j = i + 1; j < captchaImgs.length; j++) {
+                if (processed.has(j)) continue;
+                const r2 = captchaImgs[j].getBoundingClientRect();
+
+                if (isAligned(r1, r2)) {
+                    currentCluster.push(captchaImgs[j]);
+                    processed.add(j);
+                }
+            }
+            if (currentCluster.length >= 9) clusters.push(currentCluster);
         }
 
-        console.log('[LoginManager] Dynamic 2-Step Logic Loaded');
+        // Pick the best cluster (closest to 9 images, centered, most "grid-like")
+        let bestCluster = clusters.sort((a, b) => {
+            // Prefer exact 9
+            const diffA = Math.abs(a.length - 9);
+            const diffB = Math.abs(b.length - 9);
+            if (diffA !== diffB) return diffA - diffB;
+            return 0;
+        })[0];
+
+        // Fallback: if no cluster found, use naive list
+        let finalGridImages = bestCluster ? bestCluster.slice(0, 9) : captchaImgs.slice(0, 9);
+
+        // Re-sort the final grid (Row-major order: Top->Bottom, Left->Right)
+        finalGridImages.sort((a, b) => {
+            const rA = a.getBoundingClientRect();
+            const rB = b.getBoundingClientRect();
+            // Fuzzy row check (allow 10px variance)
+            if (Math.abs(rA.top - rB.top) > 15) {
+                return rA.top - rB.top;
+            }
+            return rA.left - rB.left;
+        });
+
+        console.log(`[LoginManager] 🗺️ Reconstructed grid: ${finalGridImages.length} images selected.`);
+
+        // Convert key images for solving
+        const processedImages = await Promise.all(finalGridImages.map(async img => {
+            // Highlight for debug check
+            // try { img.style.outline = '2px dashed blue'; } catch(e){}
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width;
+                canvas.height = img.naturalHeight || img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                return canvas.toDataURL('image/png');
+            } catch (e) {
+                console.warn('[LoginManager] Canvas error, falling back to src');
+                return img.src;
+            }
+        }));
+
+        console.log(`[LoginManager] 📸 Images converted in ${Date.now() - startWait}ms`);
+
+        // Use the SORTED images for clicking later
+        let gridImages = finalGridImages;
+
+        // 5. Send to Server with Timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        let response;
+        try {
+            response = await fetch('http://localhost:3000/solve-grid-captcha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    images: processedImages,
+                    target: target,
+                    apiKey: settings.apiKey
+                }),
+                signal: controller.signal
+            });
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.error('[LoginManager] ❌ IDP Fetch Error (Timeout/Network):', err);
+            return false;
+        }
+        clearTimeout(timeoutId);
+
+        // 🚨 HANDLE BANS (430 / 403 / 429)
+        if (response.status === 430 || response.status === 403 || response.status === 429) {
+            console.error('[LoginManager] 🚨 IP BANNED! Status:', response.status);
+            chrome.runtime.sendMessage({
+                type: 'ROTATE_PROXY',
+                reloadTab: true,
+                reason: 'IP_BANNED_' + response.status
+            }).catch(() => { });
+            return false;
+        }
+
+        const result = await response.json();
+
+        // ERROR HANDLING (Guard Clause)
+        if (!result.success || !result.matches) {
+            console.error('[LoginManager] Server failed to solve:', result.error || 'Unknown error');
+            return false;
+        }
+
+        console.log('[LoginManager] ✅ Server returned matches:', result.matches);
+
+        // CRITICAL: Abort if no matches
+        if (result.matches.length === 0) {
+            console.warn('[LoginManager] ⚠️ AI found 0 matches. Aborting submit.');
+            return false;
+        }
+
+        // 6. Click Matches
+        console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches...`);
+
+        for (const idx of result.matches) {
+            const img = gridImages[idx];
+            if (img) {
+                console.log(`[LoginManager] 👆 Clicking cell ${idx}`);
+
+                // Find clickable element
+                let clickTarget = img;
+                const parent = img.parentElement;
+                const grandparent = parent?.parentElement;
+
+                if (parent && (parent.onclick || parent.getAttribute('onclick'))) {
+                    clickTarget = parent;
+                } else if (grandparent && (grandparent.onclick || grandparent.getAttribute('onclick'))) {
+                    clickTarget = grandparent;
+                } else if (img.closest('[onclick]')) {
+                    clickTarget = img.closest('[onclick]');
+                }
+
+                await humanClick(clickTarget);
+
+                // Visual Feedback
+                try {
+                    img.style.border = '4px solid #00ff00';
+                    img.style.boxSizing = 'border-box';
+                    if (clickTarget !== img) clickTarget.style.border = '2px solid #00ff00';
+                } catch (e) { }
+
+                // Dispatch Events
+                try {
+                    const events = ['change', 'input'];
+                    events.forEach(evt => {
+                        try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
+                    });
+                } catch (e) { }
+
+                await sleep(100 + Math.random() * 50);
+            }
+        }
+
+        // Safety Pause
+        const safetyPause = 1000 + Math.random() * 1000;
+        console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
+        await sleep(safetyPause);
+
+        console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
+        return true;
+
+    } catch (error) {
+        console.error('[LoginManager] Error in solveGridCaptcha:', error);
+        return false;
+    }
+}
+
+function reset() {
+    loginAttempts = 0;
+    isLoggingIn = false;
+}
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+if (typeof globalThis !== 'undefined') {
+    globalThis.AntigravityLoginManager = {
+        attemptLogin,
+        reset,
+        getLoginFields,
+        diagnoseDOM,
+        solveGridCaptcha,
+        humanClick  // Added for Navigator to use
+    };
+}
+
+console.log('[LoginManager] Dynamic 2-Step Logic Loaded');
