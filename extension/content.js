@@ -703,6 +703,13 @@ async function attemptAutoLogin() {
                             level: result.success ? 'success' : 'error'
                         }
                     }).catch(() => { });
+
+                    // RETRY LOGIC for FORM_NOT_FOUND
+                    // If page loaded but form rendered late, we must retry
+                    if (!result.success && result.reason === 'FORM_NOT_FOUND') {
+                        console.warn('[Antigravity] ⚠️ Form not found yet. Retrying detection in 2s...');
+                        setTimeout(() => runDetection(), 2000);
+                    }
                 } else {
                     console.log('[Antigravity] No active client for auto-login');
                 }
