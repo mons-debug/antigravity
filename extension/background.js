@@ -142,7 +142,10 @@ const MAX_HISTORY_SIZE = 50;
  * @returns {Promise<{success: boolean, matches?: number[], error?: string}>}
  */
 async function solveGridCaptchaDirect(images, target, apiKey) {
-  const API_URL = 'https://api.nocaptchaai.com/createTask';
+  const CREATE_TASK_URL = 'https://api.nocaptchaai.com/createTask';
+  const GET_RESULT_URL = 'https://api.nocaptchaai.com/getTaskResult';
+  const MAX_POLLS = 30;  // Max 30 attempts
+  const POLL_INTERVAL = 1000; // 1 second between polls
 
   try {
     console.log(`[Background] 🚀 BLS Module API call for target: "${target}"`);
@@ -151,7 +154,7 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     // CRITICAL: Strip base64 prefix if present
     const cleanImages = images.map(img => {
       if (img.startsWith('data:')) {
-        return img.split(',')[1]; // Remove "data:image/png;base64," prefix
+        return img.split(',')[1];
       }
       return img;
     });
@@ -167,75 +170,101 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
       }
     };
 
-    console.log('[Background] 📤 Sending to API...');
+    console.log('[Background] 📤 Sending createTask request...');
 
-    const response = await fetch(API_URL, {
+    const createResponse = await fetch(CREATE_TASK_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[Background] ❌ API Error ${response.status}:`, errText);
-      return { success: false, error: `API Error ${response.status}: ${errText}` };
+    if (!createResponse.ok) {
+      const errText = await createResponse.text();
+      console.error(`[Background] ❌ createTask Error ${createResponse.status}:`, errText);
+      return { success: false, error: `API Error ${createResponse.status}: ${errText}` };
     }
 
-    const result = await response.json();
+    const createResult = await createResponse.json();
+    console.log('[Background] 📦 createTask Response:', JSON.stringify(createResult, null, 2));
 
-    // =====================================================================
-    // CRITICAL: Log RAW response for debugging
-    // =====================================================================
-    console.log('='.repeat(60));
-    console.log('[Background] 📦 RAW API RESPONSE:', JSON.stringify(result, null, 2));
-    console.log('='.repeat(60));
-
-    // =====================================================================
-    // ROBUST PARSING: Handle all known NoCaptchaAI formats
-    // =====================================================================
-
-    // Check for error first
-    if (result.error || result.errorId || result.errorDescription) {
-      const errMsg = result.errorDescription || result.error || `Error ID: ${result.errorId}`;
-      console.error('[Background] ❌ API returned error:', errMsg);
-      return { success: false, error: errMsg };
+    // Check for immediate error
+    if (createResult.errorId || createResult.error) {
+      return { success: false, error: createResult.errorDescription || createResult.error };
     }
 
-    // Extract solution array from multiple possible locations
-    let answers = null;
+    // =====================================================================
+    // HANDLE ASYNC TASK (taskId) OR SYNCHRONOUS RESPONSE (solution)
+    // =====================================================================
 
-    if (result.solution && Array.isArray(result.solution)) {
-      answers = result.solution;
-      console.log('[Background] ✅ Found solution in result.solution');
-    } else if (result.data && Array.isArray(result.data)) {
-      answers = result.data;
-      console.log('[Background] ✅ Found solution in result.data');
-    } else if (result.answers && Array.isArray(result.answers)) {
-      answers = result.answers;
-      console.log('[Background] ✅ Found solution in result.answers');
-    } else if (result.text && Array.isArray(result.text)) {
-      answers = result.text;
-      console.log('[Background] ✅ Found solution in result.text');
-    } else if (Array.isArray(result)) {
-      answers = result;
-      console.log('[Background] ✅ Response is direct array');
+    let solution = null;
+
+    // Case 1: Synchronous response (solution already present)
+    if (createResult.solution && Array.isArray(createResult.solution)) {
+      console.log('[Background] ✅ Got synchronous solution');
+      solution = createResult.solution;
+    }
+    // Case 2: Async task - need to poll getTaskResult
+    else if (createResult.taskId) {
+      console.log(`[Background] ⏳ Got taskId: ${createResult.taskId} - Starting polling...`);
+
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+        const pollResponse = await fetch(GET_RESULT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientKey: apiKey,
+            taskId: createResult.taskId
+          })
+        });
+
+        if (!pollResponse.ok) {
+          console.warn(`[Background] ⚠️ Poll ${i + 1} failed: ${pollResponse.status}`);
+          continue;
+        }
+
+        const pollResult = await pollResponse.json();
+        console.log(`[Background] 📊 Poll ${i + 1}:`, JSON.stringify(pollResult));
+
+        // Check for error
+        if (pollResult.errorId || pollResult.error) {
+          return { success: false, error: pollResult.errorDescription || pollResult.error };
+        }
+
+        // Check for solution
+        if (pollResult.status === 'ready' && pollResult.solution) {
+          console.log('[Background] ✅ Solution ready!');
+          solution = pollResult.solution;
+          break;
+        }
+
+        // Check for processing
+        if (pollResult.status === 'processing') {
+          console.log(`[Background] ⏳ Still processing... (${i + 1}/${MAX_POLLS})`);
+        }
+      }
+
+      if (!solution) {
+        return { success: false, error: 'Timeout waiting for solution' };
+      }
+    }
+    // Case 3: Unknown format
+    else {
+      console.error('[Background] ❌ Unknown response format');
+      console.error('[Background] Response keys:', Object.keys(createResult));
+      return { success: false, error: 'Unknown API response format', rawResponse: createResult };
     }
 
-    // Check if we found answers
-    if (!answers || answers.length === 0) {
-      console.error('[Background] ❌ No solution array found in response!');
-      console.error('[Background] Response keys:', Object.keys(result));
-      return { success: false, error: 'No solution array in API response', rawResponse: result };
-    }
+    // =====================================================================
+    // PARSE SOLUTION AND FIND MATCHES
+    // =====================================================================
 
-    console.log(`[Background] 🔢 OCR Results (${answers.length} cells): [${answers.join(', ')}]`);
+    console.log(`[Background] 🔢 OCR Results (${solution.length} cells): [${solution.join(', ')}]`);
     console.log(`[Background] 🎯 Looking for target: "${target}"`);
 
-    // Calculate matches - fuzzy string comparison
     const matches = [];
-    answers.forEach((val, idx) => {
+    solution.forEach((val, idx) => {
       const valStr = String(val).trim().toLowerCase();
       const targetStr = String(target).trim().toLowerCase();
 
@@ -245,9 +274,9 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
       }
     });
 
-    console.log(`[Background] ✅ Total matches for "${target}": [${matches.join(', ')}] (${matches.length} found)`);
-
+    console.log(`[Background] ✅ Total matches: [${matches.join(', ')}] (${matches.length} found)`);
     return { success: true, matches };
+
   } catch (err) {
     console.error('[Background] ❌ Direct API Error:', err);
     return { success: false, error: err.message };
