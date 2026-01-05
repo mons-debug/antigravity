@@ -713,8 +713,17 @@ async function injectScoutLogic(tabId) {
 /**
  * Service worker installation handler.
  */
-chrome.runtime.onInstalled.addListener((details) => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('[Antigravity] Extension installed:', details.reason);
+
+  // CRITICAL: Clear any stale proxy settings to prevent blocking
+  // This ensures fresh install starts with direct connection
+  try {
+    await ProxyManager.clear();
+    console.log('[Antigravity] ✅ Proxy cleared on install (direct connection)');
+  } catch (e) {
+    console.warn('[Antigravity] Could not clear proxy on install:', e);
+  }
 
   // Initialize storage with default values
   chrome.storage.local.set({
@@ -730,8 +739,17 @@ chrome.runtime.onInstalled.addListener((details) => {
 /**
  * Service worker startup handler.
  */
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   console.log('[Antigravity] Service worker started');
+
+  // CRITICAL: Clear proxy on startup to prevent stale proxy blocking
+  // User must explicitly enable proxy via popup
+  try {
+    await ProxyManager.clear();
+    console.log('[Antigravity] ✅ Proxy cleared on startup (direct connection)');
+  } catch (e) {
+    console.warn('[Antigravity] Could not clear proxy on startup:', e);
+  }
 
   // Recover session from storage if available
   chrome.storage.local.get(['activeSession'], (result) => {
