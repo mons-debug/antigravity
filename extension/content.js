@@ -683,7 +683,8 @@ async function attemptAutoLogin() {
         // Check if LoginManager is available
         if (!globalThis.AntigravityLoginManager) {
             console.warn('[Antigravity] LoginManager not loaded');
-            // Lock will be released in finally block
+            isAutoLoginPending = false; // CRITICAL: Release lock
+            clearTimeout(lockTimeout);
             return;
         }
 

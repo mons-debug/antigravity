@@ -781,11 +781,10 @@ async function solveGridCaptcha() {
                     console.error('[LoginManager] Server failed to solve:', result.error);
                     return false;
                 }
-
-            } catch (error) {
-                console.error('[LoginManager] Error in solveGridCaptcha:', error);
-                return false;
             }
+        } catch (error) {
+            console.error('[LoginManager] Error in solveGridCaptcha:', error);
+            return false;
         }
 
         function reset() {
