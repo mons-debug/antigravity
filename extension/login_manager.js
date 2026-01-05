@@ -700,14 +700,30 @@ async function solveGridCaptcha() {
                     // Use robust humanClick for cell selection
                     await humanClick(clickTarget);
 
-                    // Add visual indicator for debugging
-                    try { clickTarget.style.border = '2px solid red'; } catch (e) { }
+                    // FORCE NATIVE CLICK ON PARENT (Ghost Click Fix)
+                    // Some BLS implementations listen on the TD/DIV, not the IMG
+                    if (clickTarget !== img && clickTarget.click) {
+                        try { clickTarget.click(); } catch (e) { }
+                    }
+                    if (parent && parent.click && parent !== clickTarget) {
+                        try { parent.click(); } catch (e) { }
+                    }
+
+                    // VISUAL FEEDBACK (Green Border)
+                    try {
+                        img.style.border = '4px solid #00ff00';
+                        img.style.boxSizing = 'border-box';
+                        if (clickTarget !== img) {
+                            clickTarget.style.border = '2px solid #00ff00';
+                        }
+                    } catch (e) { }
 
                     // HARDENING: Dispatch extra events to ensure selection registers
                     try {
-                        clickTarget.dispatchEvent(new Event('change', { bubbles: true }));
-                        clickTarget.dispatchEvent(new Event('input', { bubbles: true }));
-                        clickTarget.dispatchEvent(new Event('blur', { bubbles: true }));
+                        const events = ['mousedown', 'mouseup', 'click', 'change', 'input'];
+                        events.forEach(evt => {
+                            try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
+                        });
                     } catch (e) { }
 
                     await sleep(100 + Math.random() * 50);
