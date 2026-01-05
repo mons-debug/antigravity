@@ -115,6 +115,19 @@ function sleep(ms) {
 }
 
 /**
+ * Smart Wait: Polls for an element until it exists or timeout
+ */
+async function waitForElement(selector, timeout = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        const el = document.querySelector(selector);
+        if (el && el.offsetParent !== null) return el;
+        await sleep(50);
+    }
+    return null;
+}
+
+/**
  * Wait for session stability after Nuclear Rotation to prevent captcha loops.
  * Waits for document to be fully loaded plus a random settling delay.
  * Also waits for login form elements to appear in DOM.
@@ -122,7 +135,7 @@ function sleep(ms) {
 async function waitForStability() {
     console.log('[LoginManager] ⏳ Waiting for session stability...');
 
-    // Wait for document readyState to be complete
+    // 1. Wait for document ready
     if (document.readyState !== 'complete') {
         await new Promise(resolve => {
             const checkReady = () => {
@@ -132,12 +145,33 @@ async function waitForStability() {
                 }
             };
             window.addEventListener('load', checkReady);
-            // Fallback timeout
             setTimeout(resolve, 5000);
         });
     }
 
-    // CRITICAL: Wait for login form elements to appear
+    // 2. SPINNER AWARENESS: Wait for loading indicators to vanish
+    console.log('[LoginManager] ⏳ Checking for spinners/overlays...');
+    const spinnerSelectors = ['.preloader', '.loading', '#global-overlay', '.overlay', '.loader', 'div[class*="loading"]'];
+    const maxSpinnerWait = 10000;
+    const spinnerStart = Date.now();
+
+    while (Date.now() - spinnerStart < maxSpinnerWait) {
+        const activeSpinner = spinnerSelectors.find(sel => {
+            const el = document.querySelector(sel);
+            return el && el.offsetParent !== null; // Visible
+        });
+
+        if (!activeSpinner) {
+            // Double check: ensure no inputs are disabled
+            const disabledInput = document.querySelector('input[disabled], button[disabled]');
+            if (!disabledInput) break;
+        }
+
+        console.log(`[LoginManager] ⏳ Spinner active: ${activeSpinner || 'Disabled Input'}...`);
+        await sleep(500);
+    }
+
+    // 3. Wait for login form elements
     console.log('[LoginManager] ⏳ Waiting for login form elements...');
     const maxWaitForForm = 8000; // 8 seconds max
     const startWait = Date.now();
@@ -155,8 +189,8 @@ async function waitForStability() {
         await sleep(200);
     }
 
-    // Additional random settling delay (1000ms - 2000ms)
-    const settlingDelay = 1000 + Math.random() * 1000;
+    // Additional random settling delay
+    const settlingDelay = 500 + Math.random() * 500;
     console.log(`[LoginManager] 💤 Settling for ${Math.round(settlingDelay)}ms...`);
     await sleep(settlingDelay);
 
@@ -744,54 +778,66 @@ async function solveGridCaptcha() {
             return false;
         }
 
-        // 6. Click Matches
-        console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches...`);
+        // 6. Click Matches (The CLICK HAMMER)
+        console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches (Aggressive Mode)...`);
 
         for (const idx of result.matches) {
             const img = gridImages[idx];
             if (img) {
-                console.log(`[LoginManager] 👆 Clicking cell ${idx}`);
+                console.log(`[LoginManager] � Hammering cell ${idx}`);
 
-                // Find clickable element
-                let clickTarget = img;
-                const parent = img.parentElement;
-                const grandparent = parent?.parentElement;
+                // 1. Identify all targets (Image, Parent, Grandparent)
+                const targets = [img];
+                if (img.parentElement) targets.push(img.parentElement);
+                if (img.parentElement?.parentElement) targets.push(img.parentElement.parentElement);
 
-                if (parent && (parent.onclick || parent.getAttribute('onclick'))) {
-                    clickTarget = parent;
-                } else if (grandparent && (grandparent.onclick || grandparent.getAttribute('onclick'))) {
-                    clickTarget = grandparent;
-                } else if (img.closest('[onclick]')) {
-                    clickTarget = img.closest('[onclick]');
+                // 2. Click them all
+                for (const target of targets) {
+                    if (target.onclick || target.getAttribute('onclick') || targets.indexOf(target) === 0) {
+                        try {
+                            target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                            target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                            target.click();
+                        } catch (e) { }
+                    }
                 }
 
-                await humanClick(clickTarget);
+                await humanClick(img);
 
-                // Visual Feedback
+                // 3. Visual Feedback
                 try {
-                    img.style.border = '4px solid #00ff00';
+                    img.style.border = '3px solid #00ff00';
                     img.style.boxSizing = 'border-box';
-                    if (clickTarget !== img) clickTarget.style.border = '2px solid #00ff00';
                 } catch (e) { }
 
-                // Dispatch Events
+                // 4. Dispatch Force Events
                 try {
-                    const events = ['change', 'input'];
-                    events.forEach(evt => {
-                        try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
-                    });
+                    const params = { bubbles: true, cancelable: true, view: window };
+                    img.dispatchEvent(new Event('change', params));
+                    img.dispatchEvent(new Event('input', params));
                 } catch (e) { }
 
                 await sleep(100 + Math.random() * 50);
             }
         }
 
-        // Safety Pause
-        const safetyPause = 1000 + Math.random() * 1000;
-        console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
-        await sleep(safetyPause);
+        // 7. SMART SUBMIT
+        console.log(`[LoginManager] ⏳ Waiting for submit button (Smart Wait)...`);
 
-        console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
+        // Wait for button to be clickable/present
+        const submitBtn = await waitForElement('input[type="submit"], button[type="submit"], #btnSubmit, #btnVerify', 3000);
+
+        if (submitBtn) {
+            console.log('[LoginManager] ✅ Submit button found, clicking immediately.');
+            await sleep(200); // Tiny debounce
+            return true;
+            // Note: We return true to let the main loop define HOW to click (it simulates human click there)
+            // Or we could click here. The main loop (line 305) calls humanClick(submitBtn).
+            // So we just return true.
+        } else {
+            console.warn('[LoginManager] ⚠️ Submit button not found after grid solve.');
+        }
+
         return true;
 
     } catch (error) {
