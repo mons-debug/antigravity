@@ -88,40 +88,23 @@ const StealthManager = {
 
     /**
      * Update User-Agent header via declarativeNetRequest
+     * NOTE: DISABLED - This was causing page loading issues on BLS
+     * The client-side fingerprint spoofing is sufficient for detection evasion
      */
     async updateUserAgentRule() {
+        // DISABLED: declarativeNetRequest UA modification was breaking page loading
+        console.log('[Stealth] 📝 User-Agent modification DISABLED (using client-side only)');
+
+        // Clear any existing rules that might be interfering
         try {
-            // Remove existing rule
             await chrome.declarativeNetRequest.updateDynamicRules({
                 removeRuleIds: [1]
             });
-
-            // Add new rule with current user agent
-            await chrome.declarativeNetRequest.updateDynamicRules({
-                addRules: [{
-                    id: 1,
-                    priority: 1,
-                    action: {
-                        type: "modifyHeaders",
-                        requestHeaders: [
-                            {
-                                header: "User-Agent",
-                                operation: "set",
-                                value: this.currentUserAgent
-                            }
-                        ]
-                    },
-                    condition: {
-                        urlFilter: "*://*.blsspainmorocco.net/*",
-                        resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script", "image"]
-                    }
-                }]
-            });
-
-            console.log('[Stealth] 📝 User-Agent header rule updated');
         } catch (err) {
-            console.warn('[Stealth] ⚠️ Could not update UA rule:', err.message);
+            // Ignore errors
         }
+
+        return; // Skip UA modification
     },
 
     /**
