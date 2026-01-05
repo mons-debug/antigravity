@@ -15,7 +15,7 @@
 const CONFIG = {
     // Retry configuration for DOM detection
     maxRetries: 30,
-    retryInterval: 100, // ms
+    retryInterval: 300, // Increased to 300ms (Sweet spot)
 
     // Debounce for mutation observer
     debounceDelay: 250,
@@ -44,6 +44,103 @@ const CONFIG = {
     }
 };
 
+// ... (Watchdog and other code remains same) ...
+
+let isAutoLoginPending = false;
+let isDetectionPaused = false;
+let lastDetectionTime = 0;
+
+function pauseDetection(ms = 2000) {
+    if (isDetectionPaused) return;
+    console.log(`[Antigravity] ⏸️ Pausing detection for ${ms}ms...`);
+    isDetectionPaused = true;
+    setTimeout(() => {
+        isDetectionPaused = false;
+        console.log('[Antigravity] ▶️ Resuming detection...');
+    }, ms);
+}
+
+// ... (detectPageState remains same) ...
+
+// ============================================================================
+// INITIALIZATION & MONITORING
+// ============================================================================
+
+/**
+ * Debounce utility for the mutation observer.
+ */
+let debounceTimer = null;
+function debounce(func, delay) {
+    return function (...args) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            requestAnimationFrame(() => func.apply(this, args));
+        }, delay);
+    };
+}
+
+/**
+ * Main detection function with retry logic.
+ */
+function runDetection(attempt = 0) {
+    if (isDetectionPaused) return;
+
+    // Use requestAnimationFrame for smoother UI checks
+    requestAnimationFrame(() => {
+        const pageState = detectPageState();
+
+        // If state is unknown and we haven't exhausted retries, try again
+        if (pageState === CONFIG.states.UNKNOWN && attempt < CONFIG.maxRetries) {
+            setTimeout(() => runDetection(attempt + 1), CONFIG.retryInterval);
+            return;
+        }
+
+        const domData = extractDOMData(pageState);
+        console.log('[Antigravity] Detected page state:', pageState, domData);
+
+        // Send state to background
+        sendPageState(pageState, domData);
+
+        // Handle state-specific actions
+        handleStateActions(pageState, domData);
+
+        // Set up mutation observer for dynamic content changes
+        setupMutationObserver();
+    });
+}
+
+function setupMutationObserver() {
+    if (window.mutationObserverSet) return; // Prevent duplicate observers
+    window.mutationObserverSet = true;
+
+    const debouncedCheck = debounce(() => {
+        if (isDetectionPaused) return;
+
+        const newState = detectPageState();
+
+        // Only trigger if state really changed
+        if (newState !== lastReportedState) {
+            console.log('[Antigravity] 🔄 State changed:', newState);
+            const domData = extractDOMData(newState);
+            lastReportedState = newState;
+            sendPageState(newState, domData);
+            handleStateActions(newState, domData);
+        }
+    }, CONFIG.debounceDelay);
+
+    const observer = new MutationObserver(debouncedCheck);
+    observer.observe(document.documentElement || document.body, {
+        childList: true,
+        subtree: true,
+        attributes: false
+    });
+}
+
+/**
+ * Handles automatic actions based on the detected page state.
+ */
+
+
 // ============================================================================
 // BLANK PAGE WATCHDOG (Recovers from 502/504 hangs)
 // ============================================================================
@@ -68,10 +165,7 @@ const CONFIG = {
     }, 5000);
 })();
 
-// ============================================================================
-// AUTO-LOGIN LOCK (Prevents race condition / spam loop)
-// ============================================================================
-let isAutoLoginPending = false;
+
 
 // ============================================================================
 // PAGE STATE DETECTION
@@ -547,47 +641,13 @@ function sendPageState(pageState, domData) {
     });
 }
 
-// ============================================================================
-// INITIALIZATION & MONITORING
-// ============================================================================
 
-/**
- * Debounce utility for the mutation observer.
- */
-let debounceTimer = null;
-function debounce(func, delay) {
-    return function (...args) {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => func.apply(this, args), delay);
-    };
-}
 
 /**
  * Main detection function with retry logic.
  * Waits for DOM to be ready before detecting state.
  */
-function runDetection(attempt = 0) {
-    const pageState = detectPageState();
 
-    // If state is unknown and we haven't exhausted retries, try again
-    if (pageState === CONFIG.states.UNKNOWN && attempt < CONFIG.maxRetries) {
-        setTimeout(() => runDetection(attempt + 1), CONFIG.retryInterval);
-        return;
-    }
-
-    const domData = extractDOMData(pageState);
-
-    console.log('[Antigravity] Detected page state:', pageState, domData);
-
-    // Send state to background
-    sendPageState(pageState, domData);
-
-    // Handle state-specific actions
-    handleStateActions(pageState, domData);
-
-    // Set up mutation observer for dynamic content changes
-    setupMutationObserver();
-}
 
 /**
  * Handles automatic actions based on the detected page state.
@@ -596,6 +656,12 @@ function runDetection(attempt = 0) {
  * @param {Object} domData - Extracted DOM data
  */
 async function handleStateActions(pageState, domData) {
+    // PAUSE detection when actions triggered to prevent loops
+    // Except Dashboard (we want fast navigation there) or Unknown
+    if (pageState !== CONFIG.states.UNKNOWN && pageState !== CONFIG.states.DASHBOARD) {
+        pauseDetection(2000);
+    }
+
     switch (pageState) {
         case CONFIG.states.LOGIN:
             console.log('[Antigravity] Login page detected, checking for auto-login...');
@@ -814,30 +880,7 @@ async function attemptAutoFill() {
  * Sets up a mutation observer to detect page state changes.
  * Useful for SPAs or dynamically loaded content.
  */
-function setupMutationObserver() {
-    const debouncedCheck = debounce(() => {
-        const newState = detectPageState();
-        const domData = extractDOMData(newState);
 
-        // Only send if state has meaningfully changed
-        if (newState !== lastReportedState) {
-            lastReportedState = newState;
-            console.log('[Antigravity] Page state changed:', newState);
-            sendPageState(newState, domData);
-
-            // Handle new state actions
-            handleStateActions(newState, domData);
-        }
-    }, CONFIG.debounceDelay);
-
-    const observer = new MutationObserver(debouncedCheck);
-
-    observer.observe(document.documentElement || document.body, {
-        childList: true,
-        subtree: true,
-        attributes: false
-    });
-}
 
 // Track last reported state to avoid redundant reports
 let lastReportedState = null;
