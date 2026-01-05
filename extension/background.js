@@ -129,6 +129,68 @@ const sessionHistory = [];
 const MAX_HISTORY_SIZE = 50;
 
 // ============================================================================
+// DIRECT GRID CAPTCHA SOLVER (TURBO MODE)
+// ============================================================================
+
+/**
+ * Solve grid captcha by calling NoCaptchaAI API directly.
+ * Bypasses localhost server for faster response.
+ * 
+ * @param {string[]} images - Array of base64 image data
+ * @param {string} target - Target number to find (e.g., "781")
+ * @param {string} apiKey - NoCaptchaAI API key
+ * @returns {Promise<{success: boolean, matches?: number[], error?: string}>}
+ */
+async function solveGridCaptchaDirect(images, target, apiKey) {
+  const API_URL = 'https://api.nocaptchaai.com/solve';
+
+  try {
+    console.log(`[Background] 🚀 Direct API call for target: ${target}`);
+
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': apiKey
+      },
+      body: JSON.stringify({
+        method: 'grid3x3',
+        images: images,
+        target: target,
+        softid: 'antigravity-turbo'
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[Background] ❌ API Error ${response.status}:`, errText);
+      return { success: false, error: `API Error ${response.status}` };
+    }
+
+    const result = await response.json();
+    console.log('[Background] 📦 API Response:', result);
+
+    // Handle NoCaptchaAI response format
+    if (result.status === 'solved' && result.solution) {
+      // Convert solution to array of indices (0-8)
+      const matches = Array.isArray(result.solution)
+        ? result.solution
+        : Object.keys(result.solution).filter(k => result.solution[k]).map(Number);
+
+      console.log(`[Background] ✅ Solved! Matches: [${matches.join(', ')}]`);
+      return { success: true, matches };
+    } else if (result.error) {
+      return { success: false, error: result.error };
+    } else {
+      return { success: false, error: 'Unknown API response format' };
+    }
+  } catch (err) {
+    console.error('[Background] ❌ Direct API Error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ============================================================================
 // MESSAGE HANDLERS
 // ============================================================================
 
@@ -385,61 +447,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'SOLVE_CAPTCHA':
       console.log('[Antigravity] 🧩 CAPTCHA solve request received');
-      console.log('[Antigravity] Image length:', payload?.image?.length || 0);
 
       (async () => {
         try {
-          // Check if CaptchaService is available
-          // Check if CaptchaService is available
+          // ================================================================
+          // GRID CAPTCHA: Direct API Pipeline (TURBO MODE)
+          // ================================================================
+          if (payload?.type === 'GRID') {
+            console.log('[Antigravity] 🚀 TURBO MODE: Direct Grid API');
+
+            const { images, target, apiKey } = payload;
+            if (!images || !target || !apiKey) {
+              sendResponse({ success: false, error: 'Missing required fields' });
+              return;
+            }
+
+            chrome.runtime.sendMessage({
+              type: 'LOG_UPDATE',
+              payload: { message: `🔬 Solving Grid: Target "${target}"...`, level: 'info' }
+            }).catch(() => { });
+
+            // Direct API Call to NoCaptchaAI
+            const result = await solveGridCaptchaDirect(images, target, apiKey);
+
+            if (result.success) {
+              console.log('[Antigravity] ✅ Grid solved:', result.matches);
+              chrome.runtime.sendMessage({
+                type: 'LOG_UPDATE',
+                payload: { message: `✅ Grid solved! Matches: [${result.matches.join(', ')}]`, level: 'success' }
+              }).catch(() => { });
+              sendResponse({ success: true, matches: result.matches });
+            } else {
+              console.error('[Antigravity] ❌ Grid solve failed:', result.error);
+              sendResponse({ success: false, error: result.error });
+            }
+            return;
+          }
+
+          // ================================================================
+          // TEXT CAPTCHA: Original CaptchaService Pipeline
+          // ================================================================
           if (!CaptchaService) {
             console.error('[Antigravity] CaptchaService not loaded');
             sendResponse({ success: false, solution: null, error: 'SERVICE_NOT_LOADED' });
             return;
           }
 
-          // Notify user we're solving
           chrome.runtime.sendMessage({
             type: 'LOG_UPDATE',
-            payload: { message: '🧩 Solving CAPTCHA...', level: 'info' }
+            payload: { message: '🧩 Solving Text CAPTCHA...', level: 'info' }
           }).catch(() => { });
 
-          // Call the captcha service
           const result = await CaptchaService.solveCaptcha(payload.image);
 
           if (result.success && result.solution) {
             console.log('[Antigravity] ✅ CAPTCHA solved:', result.solution);
-
-            // Notify success
-            chrome.runtime.sendMessage({
-              type: 'LOG_UPDATE',
-              payload: { message: `✅ CAPTCHA solved: ${result.solution}`, level: 'success' }
-            }).catch(() => { });
-
-            // Send solution back to the requesting tab
             if (sender?.tab?.id) {
               chrome.tabs.sendMessage(sender.tab.id, {
                 type: 'CAPTCHA_SOLVED',
                 payload: { solution: result.solution }
               }).catch(() => { });
             }
-
             sendResponse({ success: true, solution: result.solution });
           } else {
             console.error('[Antigravity] ❌ CAPTCHA solve failed:', result.error);
-
-            chrome.runtime.sendMessage({
-              type: 'LOG_UPDATE',
-              payload: { message: `❌ CAPTCHA failed: ${result.error}`, level: 'error' }
-            }).catch(() => { });
-
-            // Send failure to tab
-            if (sender?.tab?.id) {
-              chrome.tabs.sendMessage(sender.tab.id, {
-                type: 'CAPTCHA_FAILED',
-                payload: { error: result.error }
-              }).catch(() => { });
-            }
-
             sendResponse({ success: false, solution: null, error: result.error });
           }
         } catch (error) {
@@ -447,7 +518,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: false, solution: null, error: error.message });
         }
       })();
-      return true; // Keep channel open for async response
+      return true;
 
     case 'LOGIN_ATTEMPTED':
       console.log(`[Antigravity] 🔐 Login attempted for: ${payload?.email} (attempt ${payload?.attempt})`);

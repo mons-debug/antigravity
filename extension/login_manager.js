@@ -416,300 +416,130 @@ function getEffectiveZIndex(el) {
 }
 
 /**
- * Extract the 9 visible grid images using spatial mapping and z-index winner logic.
- * BLS stacks multiple images at the same position - we only want the top one.
+ * Extract the 9 visible grid images using STRICT selectors.
+ * Simplified for accuracy - targets BLS-specific containers.
  */
 function getVisualGrid() {
-    // Find the captcha container (look for common patterns)
-    const container = document.querySelector('.captcha-container, #captcha, [class*="captcha"], table') || document.body;
+    console.log('[LoginManager] 🔬 TURBO: Strict Grid Detection...');
+
+    // Priority selectors for BLS captcha containers
+    const containerSelectors = [
+        '.captcha-container',
+        '#captcha',
+        '[class*="captcha"]',
+        'table'
+    ];
+
+    let container = null;
+    for (const sel of containerSelectors) {
+        container = document.querySelector(sel);
+        if (container) {
+            console.log(`[LoginManager] 📦 Found container: ${sel}`);
+            break;
+        }
+    }
+    container = container || document.body;
+
+    // Get all images in the container
     const allImages = Array.from(container.querySelectorAll('img'));
 
-    // Group images by their visual position
-    const positionMap = new Map();
+    // Filter: Visible, size > 30px, square-ish
+    const gridImages = allImages.filter(img => {
+        if (img.offsetParent === null) return false;
+        const w = img.width || img.getBoundingClientRect().width;
+        const h = img.height || img.getBoundingClientRect().height;
+        return w >= 30 && h >= 30 && w <= 250 && h <= 250;
+    });
 
-    // Scroll into view first to encourage lazy loading if needed
-    try {
-        container.scrollIntoView({ behavior: 'instant', block: 'center' });
-    } catch (e) { }
+    // Sort by position: Top->Bottom, Left->Right (Row-major)
+    gridImages.sort((a, b) => {
+        const rA = a.getBoundingClientRect();
+        const rB = b.getBoundingClientRect();
+        if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
+        return rA.left - rB.left;
+    });
 
-    allImages.forEach(img => {
-        // Relaxed constraints
-        if (img.width < 30 || img.height < 30) return; // Was 40
-        if (img.width > 300 || img.height > 300) return; // Was 200
+    // Take first 9
+    const finalGrid = gridImages.slice(0, 9);
+    console.log(`[LoginManager] 🗺️ Grid: ${gridImages.length} found, using ${finalGrid.length}`);
 
-        // Skip hidden functionality (display:none)
-        if (img.offsetParent === null) return;
+    // ================================================================
+    // VISUAL DEBUGGING: Draw red numbered overlays
+    // ================================================================
+    finalGrid.forEach((img, idx) => {
+        try {
+            // Remove existing overlay if any
+            const existingOverlay = img.parentElement?.querySelector('.debug-overlay');
+            if (existingOverlay) existingOverlay.remove();
 
-        // Relaxed aspect ratio
-        const aspectRatio = img.width / img.height;
-        if (aspectRatio < 0.4 || aspectRatio > 2.5) return;
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'debug-overlay';
+            overlay.textContent = idx.toString();
+            overlay.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                background: rgba(255, 0, 0, 0.8);
+                color: white;
+                font-size: 18px;
+                font-weight: bold;
+                padding: 2px 6px;
+                border-radius: 4px;
+                z-index: 99999;
+                pointer-events: none;
+            `;
 
-        const rect = img.getBoundingClientRect();
-        // REMOVED: strict viewport check which caused "missing grids" on scroll
-        // if (rect.top < 0 || rect.left < 0) return; 
-
-        // Use tighter grouping (5px instead of 10px)
-        const key = `${Math.round(rect.left / 5) * 5}-${Math.round(rect.top / 5) * 5}`;
-
-        const zIndex = getEffectiveZIndex(img);
-
-        if (!positionMap.has(key)) {
-            positionMap.set(key, { img, zIndex, rect });
-        } else {
-            // Keep the one with higher z-index (visible on top)
-            if (zIndex > positionMap.get(key).zIndex) {
-                positionMap.set(key, { img, zIndex, rect });
+            // Ensure parent is positioned
+            if (img.parentElement) {
+                img.parentElement.style.position = 'relative';
+                img.parentElement.appendChild(overlay);
             }
-        }
+        } catch (e) { }
     });
 
-    // Extract the winners (one per position)
-    const winners = Array.from(positionMap.values());
-
-    // Sort by position: top (row) first, then left (column)
-    winners.sort((a, b) => {
-        // Row-major order (25px tolerance for same row)
-        if (Math.abs(a.rect.top - b.rect.top) > 25) {
-            return a.rect.top - b.rect.top;
-        }
-        return a.rect.left - b.rect.left;
-    });
-
-    // Take exactly 9 images (the grid), ignore extras
-    const orderedImages = winners.slice(0, 9).map(w => w.img);
-
-    console.log(`[LoginManager] 🗺️ Reconstructed grid: ${winners.length} found, using first 9.`);
-
-    return orderedImages;
+    return finalGrid;
 }
 
 /**
- * Solve Grid Captcha via Server (with Spatial Mapping)
+ * Solve Grid Captcha via DIRECT API (TURBO MODE)
  */
 async function solveGridCaptcha() {
     try {
-        console.log('[LoginManager] 🧩 Starting Grid Captcha Scan...');
+        console.log('[LoginManager] 🚀 TURBO MODE: Grid Captcha Scan...');
 
-        // ================================================================
-        // 0. SMART WAIT - Ensure page is fully loaded before solving
-        // ================================================================
-        console.log('[LoginManager] ⏳ Waiting for page to fully load...');
-
-        const maxWaitMs = 5000; // Max 5 seconds
-        const startWait = Date.now();
-
-        while (Date.now() - startWait < maxWaitMs) {
-            const hasInstruction = document.body.innerText.match(/select.*boxes.*number\s*\d{3}/i) ||
-                document.body.innerText.match(/Please select/i);
-            const gridImages = Array.from(document.querySelectorAll('img')).filter(img => {
-                const rect = img.getBoundingClientRect();
-                return rect.width >= 50 && rect.width <= 200 && rect.height >= 50 && rect.height <= 200;
-            });
-            const imagesLoaded = gridImages.length >= 9 && gridImages.every(img => img.complete);
-
-            if (hasInstruction && imagesLoaded) {
-                console.log(`[LoginManager] ✅ Page ready in ${Date.now() - startWait}ms`);
-                break;
-            }
-
-            console.log(`[LoginManager] ⏳ Waiting... (instruction: ${!!hasInstruction}, images: ${gridImages.length}/9)`);
-            await sleep(200);
-        }
-
-        // 1. Get Settings (API Key)
-        let settings = { apiKey: '' };
+        // 1. Get API Key
+        let apiKey = '';
         try {
             const result = await chrome.storage.local.get(['globalSettings']);
-            settings.apiKey = result.globalSettings?.captchaApiKey || '';
-        } catch (e) { console.error('Error getting settings:', e); }
+            apiKey = result.globalSettings?.captchaApiKey || '';
+        } catch (e) { }
 
-        if (!settings.apiKey) {
-            console.warn('[LoginManager] ⚠️ No API Key found in settings. Cannot auto-solve grid.');
+        if (!apiKey) {
+            console.warn('[LoginManager] ⚠️ No API Key. Cannot solve.');
             return false;
         }
 
-        // ================================================================
-        // 2. EXTRACT TARGET NUMBER (Proximity-Based Approach)
-        // Find CAPTCHA grid FIRST, then look for instruction ABOVE it
-        // ================================================================
-
-        // Step 2a: Find the CAPTCHA grid images to get their position
-        const captchaImgs = Array.from(document.querySelectorAll('img')).filter(img => {
-            const rect = img.getBoundingClientRect();
-            return rect.width >= 50 && rect.width <= 200 &&
-                rect.height >= 50 && rect.height <= 200 &&
-                (img.onclick || img.closest('[onclick]') || img.src.toLowerCase().includes('cap'));
-        });
-
-        let gridTopY = 0;
-        if (captchaImgs.length > 0) {
-            gridTopY = Math.min(...captchaImgs.map(img => img.getBoundingClientRect().top));
-            console.log(`[LoginManager] 📍 CAPTCHA grid top position: ${gridTopY}px`);
-        }
-
-        // Step 2b: Search for instruction text ABOVE the grid
-        const textSelectors = ['p', 'span', 'div', 'h3', 'h4', 'h5', 'label', 'b', 'strong'];
-        const candidates = [];
-
-        for (const selector of textSelectors) {
-            const elements = document.querySelectorAll(selector);
-            for (const el of elements) {
-                // Visibility checks
-                if (!el.offsetParent) continue;
-                const style = window.getComputedStyle(el);
-                if (style.display === 'none' || style.visibility === 'hidden') continue;
-                if (parseFloat(style.opacity) === 0) continue;
-
-                const rect = el.getBoundingClientRect();
-                if (rect.width === 0 || rect.height === 0) continue;
-
-                // Must be ABOVE the grid (within 400px)
-                if (gridTopY > 0 && (rect.bottom > gridTopY || rect.top < gridTopY - 400)) continue;
-
-                const text = el.textContent || '';
-
-                // Match instruction pattern
-                const match = text.match(/Please\s+select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
-                if (match) {
-                    candidates.push({
-                        number: match[1],
-                        y: rect.top,
-                        zIndex: style.zIndex || '0',
-                        text: text.substring(0, 60)
-                    });
-                }
-            }
-        }
-
+        // 2. Extract Target Number (Quick scan)
         let target = '';
-
-        if (candidates.length > 0) {
-            // Sort by Y-position descending (closest to grid wins), then by z-index
-            candidates.sort((a, b) => {
-                if (Math.abs(a.y - b.y) < 5) {
-                    return (parseInt(b.zIndex) || 0) - (parseInt(a.zIndex) || 0);
-                }
-                return b.y - a.y; // Higher Y = closer to grid = wins
-            });
-
-            target = candidates[0].number;
-            console.log(`[LoginManager] 🎯 Found target via proximity: "${target}" from "${candidates[0].text}..."`);
-            console.log(`[LoginManager] 📊 Total candidates found: ${candidates.length}`);
-        }
-
-        // Fallback: Check specific captcha-related selectors
-        if (!target) {
-            console.log('[LoginManager] 📝 Falling back to captcha-specific selectors...');
-            const fallbackSelectors = [
-                '.captcha-div', '.box-label', '[class*="captcha"]',
-                '#captcha', '.captcha-instruction', '.instruction-text'
-            ];
-
-            for (const selector of fallbackSelectors) {
-                const el = document.querySelector(selector);
-                if (el) {
-                    const match = el.textContent.match(/(\d{3})/);
-                    if (match) {
-                        target = match[1];
-                        console.log(`[LoginManager] 🎯 Found target in ${selector}: "${target}"`);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Last resort: body text with strict pattern
-        if (!target) {
-            console.log('[LoginManager] 📝 Last resort: body text search...');
-            const bodyText = document.body.innerText;
-            const match = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
-            if (match) {
-                target = match[1];
-                console.log(`[LoginManager] 🎯 Final target number: "${target}"`);
-            }
-        }
-
-        if (!target) {
-            console.warn('[LoginManager] ⚠️ Could not find target number. Aborting.');
+        const bodyText = document.body.innerText;
+        const match = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
+        if (match) {
+            target = match[1];
+            console.log(`[LoginManager] 🎯 Target: "${target}"`);
+        } else {
+            console.warn('[LoginManager] ⚠️ Target number not found.');
             return false;
         }
 
-        // ================================================================
-        // 3. CAPTURE & PROCESS IMAGES (Spatial Clustering)
-        // Find the 3x3 grid structure to exclude logos/icons
-        // ================================================================
-
-        // Helper: get center of element
-        const getCenter = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-
-        // Helper: check if two images are "aligned" (in same grid system)
-        const isAligned = (r1, r2) => {
-            const verticalDist = Math.abs(r1.top - r2.top);
-            const horizontalDist = Math.abs(r1.left - r2.left);
-            const sizeDiff = Math.abs(r1.width - r2.width) + Math.abs(r1.height - r2.height);
-
-            // Should be roughly same size
-            if (sizeDiff > 20) return false;
-
-            // Should be either same row (small vertical diff) or same column (small horizontal diff)
-            // AND within reasonable distance (grid gap is usually small)
-            return (verticalDist < 20 && horizontalDist < 250) || (horizontalDist < 20 && verticalDist < 250);
-        };
-
-        // Find clusters
-        const clusters = [];
-        const processed = new Set();
-
-        // Sort by Y first
-        captchaImgs.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-
-        for (let i = 0; i < captchaImgs.length; i++) {
-            if (processed.has(i)) continue;
-            const currentCluster = [captchaImgs[i]];
-            processed.add(i);
-            const r1 = captchaImgs[i].getBoundingClientRect();
-
-            for (let j = i + 1; j < captchaImgs.length; j++) {
-                if (processed.has(j)) continue;
-                const r2 = captchaImgs[j].getBoundingClientRect();
-
-                if (isAligned(r1, r2)) {
-                    currentCluster.push(captchaImgs[j]);
-                    processed.add(j);
-                }
-            }
-            if (currentCluster.length >= 9) clusters.push(currentCluster);
+        // 3. Get Grid Images
+        const gridImages = getVisualGrid();
+        if (gridImages.length < 9) {
+            console.warn(`[LoginManager] ⚠️ Only ${gridImages.length} images found.`);
         }
 
-        // Pick the best cluster (closest to 9 images, centered, most "grid-like")
-        let bestCluster = clusters.sort((a, b) => {
-            // Prefer exact 9
-            const diffA = Math.abs(a.length - 9);
-            const diffB = Math.abs(b.length - 9);
-            if (diffA !== diffB) return diffA - diffB;
-            return 0;
-        })[0];
-
-        // Fallback: if no cluster found, use naive list
-        let finalGridImages = bestCluster ? bestCluster.slice(0, 9) : captchaImgs.slice(0, 9);
-
-        // Re-sort the final grid (Row-major order: Top->Bottom, Left->Right)
-        finalGridImages.sort((a, b) => {
-            const rA = a.getBoundingClientRect();
-            const rB = b.getBoundingClientRect();
-            // Fuzzy row check (allow 10px variance)
-            if (Math.abs(rA.top - rB.top) > 15) {
-                return rA.top - rB.top;
-            }
-            return rA.left - rB.left;
-        });
-
-        console.log(`[LoginManager] 🗺️ Reconstructed grid: ${finalGridImages.length} images selected.`);
-
-        // Convert key images for solving
-        const processedImages = await Promise.all(finalGridImages.map(async img => {
-            // Highlight for debug check
-            // try { img.style.outline = '2px dashed blue'; } catch(e){}
+        // 4. Convert to Base64
+        const processedImages = await Promise.all(gridImages.map(async img => {
             try {
                 const canvas = document.createElement('canvas');
                 canvas.width = img.naturalWidth || img.width;
@@ -718,80 +548,46 @@ async function solveGridCaptcha() {
                 ctx.drawImage(img, 0, 0);
                 return canvas.toDataURL('image/png');
             } catch (e) {
-                console.warn('[LoginManager] Canvas error, falling back to src');
                 return img.src;
             }
         }));
 
-        console.log(`[LoginManager] 📸 Images converted in ${Date.now() - startWait}ms`);
+        console.log(`[LoginManager] 📸 ${processedImages.length} images ready`);
 
-        // Use the SORTED images for clicking later
-        let gridImages = finalGridImages;
-
-        // 5. Send to Server with Timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-        let response;
-        try {
-            response = await fetch('http://localhost:3000/solve-grid-captcha', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+        // 5. Call Background (Direct API Pipeline)
+        const result = await new Promise(resolve => {
+            chrome.runtime.sendMessage({
+                type: 'SOLVE_CAPTCHA',
+                payload: {
+                    type: 'GRID',
                     images: processedImages,
                     target: target,
-                    apiKey: settings.apiKey
-                }),
-                signal: controller.signal
-            });
-        } catch (err) {
-            clearTimeout(timeoutId);
-            console.error('[LoginManager] ❌ IDP Fetch Error (Timeout/Network):', err);
-            return false;
-        }
-        clearTimeout(timeoutId);
+                    apiKey: apiKey
+                }
+            }, resolve);
+        });
 
-        // 🚨 HANDLE BANS (430 / 403 / 429)
-        if (response.status === 430 || response.status === 403 || response.status === 429) {
-            console.error('[LoginManager] 🚨 IP BANNED! Status:', response.status);
-            chrome.runtime.sendMessage({
-                type: 'ROTATE_PROXY',
-                reloadTab: true,
-                reason: 'IP_BANNED_' + response.status
-            }).catch(() => { });
+        if (!result?.success || !result.matches) {
+            console.error('[LoginManager] ❌ API Failed:', result?.error);
             return false;
         }
 
-        const result = await response.json();
+        console.log(`[LoginManager] ✅ Matches: [${result.matches.join(', ')}]`);
 
-        // ERROR HANDLING (Guard Clause)
-        if (!result.success || !result.matches) {
-            console.error('[LoginManager] Server failed to solve:', result.error || 'Unknown error');
-            return false;
-        }
-
-        console.log('[LoginManager] ✅ Server returned matches:', result.matches);
-
-        // CRITICAL: Abort if no matches
         if (result.matches.length === 0) {
-            console.warn('[LoginManager] ⚠️ AI found 0 matches. Aborting submit.');
+            console.warn('[LoginManager] ⚠️ No matches found.');
             return false;
         }
 
         // 6. Click Matches (SURGICAL MODE)
-        console.log(`[LoginManager] 🔬 Clicking ${result.matches.length} matches (Surgical Mode)...`);
+        console.log(`[LoginManager] 🔬 Clicking ${result.matches.length} cells...`);
 
         for (const idx of result.matches) {
             const img = gridImages[idx];
             if (!img) continue;
 
-            console.log(`[LoginManager] 🎯 Targeting cell ${idx}`);
-
-            // SURGICAL TARGETING: Find the EXACT clickable element
-            // Priority: 1. Element with onclick handler 2. Parent TD 3. Image itself
             const target = img.closest('[onclick]') || img.closest('td') || img;
 
-            // Clean Event Sequence (mousedown -> mouseup -> click)
             try {
                 const rect = target.getBoundingClientRect();
                 const eventParams = {
@@ -803,46 +599,33 @@ async function solveGridCaptcha() {
                 };
 
                 target.dispatchEvent(new MouseEvent('mousedown', eventParams));
-                await sleep(30 + Math.random() * 20);
+                await sleep(30);
                 target.dispatchEvent(new MouseEvent('mouseup', eventParams));
                 await sleep(10);
                 target.click();
 
-                console.log(`[LoginManager] ✅ Clicked: ${target.tagName}${target.id ? '#' + target.id : ''}`);
-            } catch (e) {
-                console.warn(`[LoginManager] ⚠️ Click failed for cell ${idx}:`, e.message);
-            }
-
-            // Visual Feedback (on the IMAGE for user confirmation)
-            try {
+                // Green border for confirmation
                 img.style.border = '3px solid #00ff00';
                 img.style.boxSizing = 'border-box';
-            } catch (e) { }
 
-            await sleep(80 + Math.random() * 40);
+                console.log(`[LoginManager] ✅ Clicked cell ${idx}`);
+            } catch (e) {
+                console.warn(`[LoginManager] ⚠️ Click error cell ${idx}:`, e.message);
+            }
+
+            await sleep(60);
         }
 
-        // 7. SMART SUBMIT
-        console.log(`[LoginManager] ⏳ Waiting for submit button (Smart Wait)...`);
-
-        // Wait for button to be clickable/present
-        const submitBtn = await waitForElement('input[type="submit"], button[type="submit"], #btnSubmit, #btnVerify', 3000);
-
+        // 7. Wait for Submit Button
+        const submitBtn = await waitForElement('input[type="submit"], button[type="submit"], #btnSubmit', 2000);
         if (submitBtn) {
-            console.log('[LoginManager] ✅ Submit button found, clicking immediately.');
-            await sleep(200); // Tiny debounce
-            return true;
-            // Note: We return true to let the main loop define HOW to click (it simulates human click there)
-            // Or we could click here. The main loop (line 305) calls humanClick(submitBtn).
-            // So we just return true.
-        } else {
-            console.warn('[LoginManager] ⚠️ Submit button not found after grid solve.');
+            console.log('[LoginManager] ✅ Submit button ready');
         }
 
         return true;
 
     } catch (error) {
-        console.error('[LoginManager] Error in solveGridCaptcha:', error);
+        console.error('[LoginManager] ❌ solveGridCaptcha error:', error);
         return false;
     }
 }
