@@ -307,7 +307,7 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     });
 
     console.log(`[Background] ✅ Total matches: [${matches.join(', ')}] (${matches.length} found)`);
-    return { success: true, matches };
+    return { success: true, matches, solution };
 
   } catch (err) {
     console.error('[Background] ❌ Direct API Error:', err);

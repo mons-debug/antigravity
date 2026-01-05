@@ -422,9 +422,9 @@ function getEffectiveZIndex(el) {
 function getVisualGrid() {
     console.log('[LoginManager] 🔬 Finding grid images...');
 
-    // Step 1: Find the instruction label (EXCLUDE scripts and styles)
+    // Step 1: Find the EXACT instruction label containing "Please select"
     let label = null;
-    const visibleElements = document.querySelectorAll('p, span, div, label, h1, h2, h3, h4, h5, td, th');
+    const visibleElements = document.querySelectorAll('p, span, div, label, td, th');
 
     for (const el of visibleElements) {
         // Skip if inside script or style
@@ -433,9 +433,11 @@ function getVisualGrid() {
         // Skip if not visible
         if (el.offsetParent === null && el.tagName !== 'BODY') continue;
 
-        // Check for instruction text
+        // Get direct text content (not nested)
         const text = el.textContent?.trim() || '';
-        if (text.includes('Please select all boxes') || text.match(/select.*boxes.*number/i)) {
+
+        // MUST contain "Please select" to be the instruction - not email or other text
+        if (text.startsWith('Please select') || text.includes('select all boxes with number')) {
             label = el;
             console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
             break;
