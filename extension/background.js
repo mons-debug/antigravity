@@ -296,12 +296,13 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
 
     const matches = [];
     solution.forEach((val, idx) => {
-      const valStr = String(val).trim().toLowerCase();
-      const targetStr = String(target).trim().toLowerCase();
+      const valStr = String(val).trim();
+      const targetStr = String(target).trim();
+
+      console.log(`[Background] 📊 Cell ${idx}: "${valStr}" vs target "${targetStr}" → ${valStr === targetStr ? '✅ MATCH' : '❌'}`);
 
       if (valStr === targetStr) {
         matches.push(idx);
-        console.log(`[Background] 🎯 Match at index ${idx}: "${val}" === "${target}"`);
       }
     });
 
