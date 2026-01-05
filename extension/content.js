@@ -45,6 +45,11 @@ const CONFIG = {
 };
 
 // ============================================================================
+// AUTO-LOGIN LOCK (Prevents race condition / spam loop)
+// ============================================================================
+let isAutoLoginPending = false;
+
+// ============================================================================
 // PAGE STATE DETECTION
 // ============================================================================
 
@@ -570,7 +575,11 @@ async function handleStateActions(pageState, domData) {
     switch (pageState) {
         case CONFIG.states.LOGIN:
             console.log('[Antigravity] Login page detected, checking for auto-login...');
-            await attemptAutoLogin();
+            if (!isAutoLoginPending) {
+                await attemptAutoLogin();
+            } else {
+                console.log('[Antigravity] Auto-login already in progress, skipping...');
+            }
             break;
 
         case CONFIG.states.DASHBOARD:
@@ -652,42 +661,61 @@ async function attemptNavigation(pageState) {
 
 /**
  * Attempts auto-login using active client credentials.
+ * Uses a lock to prevent race conditions from repeated detection calls.
  */
 async function attemptAutoLogin() {
-    // Check if LoginManager is available
-    if (!globalThis.AntigravityLoginManager) {
-        console.warn('[Antigravity] LoginManager not loaded');
+    // LOCK: Prevent race condition / spam loop
+    if (isAutoLoginPending) {
+        console.log('[Antigravity] ⏳ Auto-login already pending, skipping duplicate call');
         return;
     }
+    isAutoLoginPending = true;
 
-    // Request active client data from background
-    chrome.runtime.sendMessage({ type: 'GET_ACTIVE_CLIENT' }, async (response) => {
-        if (chrome.runtime.lastError) {
-            console.warn('[Antigravity] Could not get active client:', chrome.runtime.lastError.message);
+    try {
+        // Check if LoginManager is available
+        if (!globalThis.AntigravityLoginManager) {
+            console.warn('[Antigravity] LoginManager not loaded');
             return;
         }
 
-        if (response?.success && response.client) {
-            console.log('[Antigravity] 🔐 Auto-login with:', response.client.email);
-
-            // Small delay to ensure page is fully loaded
-            await new Promise(r => setTimeout(r, 500));
-
-            const result = await globalThis.AntigravityLoginManager.attemptLogin(response.client);
-            console.log('[Antigravity] Auto-login result:', result);
-
-            // Notify popup
-            chrome.runtime.sendMessage({
-                type: 'LOG_UPDATE',
-                payload: {
-                    message: result.success ? '🔐 Login form submitted' : `❌ Login failed: ${result.reason}`,
-                    level: result.success ? 'success' : 'error'
+        // Request active client data from background
+        chrome.runtime.sendMessage({ type: 'GET_ACTIVE_CLIENT' }, async (response) => {
+            try {
+                if (chrome.runtime.lastError) {
+                    console.warn('[Antigravity] Could not get active client:', chrome.runtime.lastError.message);
+                    return;
                 }
-            }).catch(() => { });
-        } else {
-            console.log('[Antigravity] No active client for auto-login');
-        }
-    });
+
+                if (response?.success && response.client) {
+                    console.log('[Antigravity] 🔐 Auto-login with:', response.client.email);
+
+                    // Small delay to ensure page is fully loaded
+                    await new Promise(r => setTimeout(r, 500));
+
+                    const result = await globalThis.AntigravityLoginManager.attemptLogin(response.client);
+                    console.log('[Antigravity] Auto-login result:', result);
+
+                    // Notify popup
+                    chrome.runtime.sendMessage({
+                        type: 'LOG_UPDATE',
+                        payload: {
+                            message: result.success ? '🔐 Login form submitted' : `❌ Login failed: ${result.reason}`,
+                            level: result.success ? 'success' : 'error'
+                        }
+                    }).catch(() => { });
+                } else {
+                    console.log('[Antigravity] No active client for auto-login');
+                }
+            } finally {
+                // CRITICAL: Release the lock when done
+                isAutoLoginPending = false;
+            }
+        });
+    } catch (error) {
+        console.error('[Antigravity] Auto-login error:', error);
+        // CRITICAL: Release the lock on error
+        isAutoLoginPending = false;
+    }
 }
 
 /**
