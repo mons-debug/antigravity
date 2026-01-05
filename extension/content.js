@@ -671,10 +671,19 @@ async function attemptAutoLogin() {
     }
     isAutoLoginPending = true;
 
+    // Safety timeout to release lock in case of crash/hang
+    const lockTimeout = setTimeout(() => {
+        if (isAutoLoginPending) {
+            console.warn('[Antigravity] ⚠️ Auto-login lock timed out - forcing release');
+            isAutoLoginPending = false;
+        }
+    }, 30000); // 30s timeout
+
     try {
         // Check if LoginManager is available
         if (!globalThis.AntigravityLoginManager) {
             console.warn('[Antigravity] LoginManager not loaded');
+            // Lock will be released in finally block
             return;
         }
 
@@ -713,15 +722,19 @@ async function attemptAutoLogin() {
                 } else {
                     console.log('[Antigravity] No active client for auto-login');
                 }
+            } catch (err) {
+                console.error('[Antigravity] Inner auto-login error:', err);
             } finally {
-                // CRITICAL: Release the lock when done
+                // Only release if we are done with the async chain
+                // In this specific structure, the callback IS the end of the chain
                 isAutoLoginPending = false;
+                clearTimeout(lockTimeout);
             }
         });
     } catch (error) {
-        console.error('[Antigravity] Auto-login error:', error);
-        // CRITICAL: Release the lock on error
+        console.error('[Antigravity] Auto-login setup error:', error);
         isAutoLoginPending = false;
+        clearTimeout(lockTimeout);
     }
 }
 
