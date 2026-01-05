@@ -416,52 +416,49 @@ function getEffectiveZIndex(el) {
 }
 
 /**
- * Extract the 9 visible grid images using STRICT selectors.
- * Simplified for accuracy - targets BLS-specific containers.
+ * Extract the 9 visible grid images using STRICT size filtering.
+ * Only accepts images between 50-150px to exclude icons/logos.
  */
 function getVisualGrid() {
-    console.log('[LoginManager] 🔬 TURBO: Strict Grid Detection...');
+    console.log('[LoginManager] 🔬 TURBO: Strict Grid Detection (50-150px)...');
 
-    // Priority selectors for BLS captcha containers
-    const containerSelectors = [
-        '.captcha-container',
-        '#captcha',
-        '[class*="captcha"]',
-        'table'
-    ];
+    // Get ALL images on the page
+    const allImages = Array.from(document.querySelectorAll('img'));
+    console.log(`[LoginManager] � Total images on page: ${allImages.length}`);
 
-    let container = null;
-    for (const sel of containerSelectors) {
-        container = document.querySelector(sel);
-        if (container) {
-            console.log(`[LoginManager] 📦 Found container: ${sel}`);
-            break;
-        }
-    }
-    container = container || document.body;
-
-    // Get all images in the container
-    const allImages = Array.from(container.querySelectorAll('img'));
-
-    // Filter: Visible, size > 30px, square-ish
+    // STRICT Filter: 50-150px, visible, on screen
     const gridImages = allImages.filter(img => {
+        const rect = img.getBoundingClientRect();
+
+        // Must be visible
         if (img.offsetParent === null) return false;
-        const w = img.width || img.getBoundingClientRect().width;
-        const h = img.height || img.getBoundingClientRect().height;
-        return w >= 30 && h >= 30 && w <= 250 && h <= 250;
+
+        // STRICT SIZE: Between 50px and 150px
+        const w = rect.width;
+        const h = rect.height;
+        if (w <= 50 || w >= 150) return false;
+        if (h <= 50 || h >= 150) return false;
+
+        // Must be on screen (positive top)
+        if (rect.top <= 0) return false;
+
+        return true;
     });
+
+    console.log(`[LoginManager] ✅ After strict filter: ${gridImages.length} images`);
 
     // Sort by position: Top->Bottom, Left->Right (Row-major)
     gridImages.sort((a, b) => {
         const rA = a.getBoundingClientRect();
         const rB = b.getBoundingClientRect();
+        // Same row if within 15px
         if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
         return rA.left - rB.left;
     });
 
     // Take first 9
     const finalGrid = gridImages.slice(0, 9);
-    console.log(`[LoginManager] 🗺️ Grid: ${gridImages.length} found, using ${finalGrid.length}`);
+    console.log(`[LoginManager] 🗺️ Grid: Using ${finalGrid.length} images`);
 
     // ================================================================
     // VISUAL DEBUGGING: Draw red numbered overlays
@@ -567,22 +564,35 @@ async function solveGridCaptcha() {
             }, resolve);
         });
 
-        if (!result?.success || !result.matches) {
-            console.error('[LoginManager] ❌ API Failed:', result?.error);
+        // Handle API response
+        if (!result?.success) {
+            console.error('[LoginManager] ❌ API Failed!');
+            console.error('[LoginManager] 📦 Full API Response:', JSON.stringify(result, null, 2));
             return false;
         }
 
-        console.log(`[LoginManager] ✅ Matches: [${result.matches.join(', ')}]`);
+        // Support both response formats: matches (indices) or solution (text array)
+        let matches = result.matches;
+        if (!matches && result.solution && Array.isArray(result.solution)) {
+            // Convert text solutions to indices by matching against target
+            matches = [];
+            result.solution.forEach((val, idx) => {
+                if (val === target) matches.push(idx);
+            });
+        }
 
-        if (result.matches.length === 0) {
+        if (!matches || matches.length === 0) {
             console.warn('[LoginManager] ⚠️ No matches found.');
+            console.error('[LoginManager] 📦 Full API Response:', JSON.stringify(result, null, 2));
             return false;
         }
+
+        console.log(`[LoginManager] ✅ Matches: [${matches.join(', ')}]`);
 
         // 6. Click Matches (SURGICAL MODE)
-        console.log(`[LoginManager] 🔬 Clicking ${result.matches.length} cells...`);
+        console.log(`[LoginManager] 🔬 Clicking ${matches.length} cells...`);
 
-        for (const idx of result.matches) {
+        for (const idx of matches) {
             const img = gridImages[idx];
             if (!img) continue;
 
