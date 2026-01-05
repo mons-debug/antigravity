@@ -26,7 +26,21 @@ import './scout.js';
 import './sniper.js';
 import './socket_client.js';
 
-// Initialize Stealth on startup
+// ============================================================================
+// CRITICAL: CLEAR PROXY IMMEDIATELY ON SERVICE WORKER LOAD
+// This runs every time the service worker loads (including extension reload)
+// ============================================================================
+(async () => {
+  try {
+    console.log('[Antigravity] 🚫 CLEARING PROXY ON LOAD (Direct Connection)...');
+    await ProxyManager.clear();
+    console.log('[Antigravity] ✅ Proxy cleared - using direct connection');
+  } catch (e) {
+    console.warn('[Antigravity] Could not clear proxy:', e);
+  }
+})();
+
+// Initialize Stealth on startup (AFTER proxy clear)
 StealthManager.init().catch(err => console.warn('[Antigravity] Stealth init failed:', err));
 
 // ============================================================================
