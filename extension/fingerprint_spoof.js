@@ -11,6 +11,8 @@
 
     // MASTER TRY/CATCH - Never crash the page
     try {
+        return; // DISABLE SCRIPT FOR DIAGNOSIS
+
         // ============================================================================
         // 1. GET OR CREATE SESSION IDENTITY
         // ============================================================================
