@@ -184,50 +184,70 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     }
 
     const result = await response.json();
-    console.log('[Background] 📦 API Response:', JSON.stringify(result));
 
-    // Parse API response - handle multiple possible formats
-    // Format 1: { status: 1, solution: ["113", "888", "113"] }
-    // Format 2: { status: "solved", solution: [...] }
-    // Format 3: { solution: [...] } (no status)
+    // =====================================================================
+    // CRITICAL: Log RAW response for debugging
+    // =====================================================================
+    console.log('='.repeat(60));
+    console.log('[Background] 📦 RAW API RESPONSE:', JSON.stringify(result, null, 2));
+    console.log('='.repeat(60));
 
-    let solutions = null;
+    // =====================================================================
+    // ROBUST PARSING: Handle all known NoCaptchaAI formats
+    // =====================================================================
 
-    // Try to extract solution array from various formats
-    if (result.solution && Array.isArray(result.solution)) {
-      solutions = result.solution;
-    } else if (result.data && Array.isArray(result.data)) {
-      solutions = result.data;
-    } else if (Array.isArray(result)) {
-      solutions = result; // Direct array response
-    }
-
-    if (solutions && solutions.length > 0) {
-      console.log(`[Background] 🔢 OCR Results: [${solutions.join(', ')}]`);
-
-      // Calculate indices where solution matches target
-      const matches = [];
-      solutions.forEach((val, idx) => {
-        // Compare as strings to handle both "123" and 123
-        if (String(val).trim() === String(target).trim()) {
-          matches.push(idx);
-        }
-      });
-
-      console.log(`[Background] ✅ Matches for "${target}": [${matches.join(', ')}]`);
-      return { success: true, matches };
-    }
-
-    // Handle error responses
-    if (result.errorId || result.error || result.errorDescription) {
+    // Check for error first
+    if (result.error || result.errorId || result.errorDescription) {
       const errMsg = result.errorDescription || result.error || `Error ID: ${result.errorId}`;
-      console.error('[Background] ❌ API Error:', errMsg);
+      console.error('[Background] ❌ API returned error:', errMsg);
       return { success: false, error: errMsg };
     }
 
-    // Unknown format - log full response for debugging
-    console.warn('[Background] ⚠️ Unexpected response format. Full response:', JSON.stringify(result));
-    return { success: false, error: 'Unknown API response format', rawResponse: result };
+    // Extract solution array from multiple possible locations
+    let answers = null;
+
+    if (result.solution && Array.isArray(result.solution)) {
+      answers = result.solution;
+      console.log('[Background] ✅ Found solution in result.solution');
+    } else if (result.data && Array.isArray(result.data)) {
+      answers = result.data;
+      console.log('[Background] ✅ Found solution in result.data');
+    } else if (result.answers && Array.isArray(result.answers)) {
+      answers = result.answers;
+      console.log('[Background] ✅ Found solution in result.answers');
+    } else if (result.text && Array.isArray(result.text)) {
+      answers = result.text;
+      console.log('[Background] ✅ Found solution in result.text');
+    } else if (Array.isArray(result)) {
+      answers = result;
+      console.log('[Background] ✅ Response is direct array');
+    }
+
+    // Check if we found answers
+    if (!answers || answers.length === 0) {
+      console.error('[Background] ❌ No solution array found in response!');
+      console.error('[Background] Response keys:', Object.keys(result));
+      return { success: false, error: 'No solution array in API response', rawResponse: result };
+    }
+
+    console.log(`[Background] 🔢 OCR Results (${answers.length} cells): [${answers.join(', ')}]`);
+    console.log(`[Background] 🎯 Looking for target: "${target}"`);
+
+    // Calculate matches - fuzzy string comparison
+    const matches = [];
+    answers.forEach((val, idx) => {
+      const valStr = String(val).trim().toLowerCase();
+      const targetStr = String(target).trim().toLowerCase();
+
+      if (valStr === targetStr) {
+        matches.push(idx);
+        console.log(`[Background] 🎯 Match at index ${idx}: "${val}" === "${target}"`);
+      }
+    });
+
+    console.log(`[Background] ✅ Total matches for "${target}": [${matches.join(', ')}] (${matches.length} found)`);
+
+    return { success: true, matches };
   } catch (err) {
     console.error('[Background] ❌ Direct API Error:', err);
     return { success: false, error: err.message };
