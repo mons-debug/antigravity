@@ -334,6 +334,29 @@ function setupEventListeners() {
         });
     }
 
+    // Direct Connection Button (Bypass Proxies)
+    const btnDirect = document.getElementById('btnDirect');
+    if (btnDirect) {
+        btnDirect.addEventListener('click', () => {
+            log('🔌 Switching to Direct Connection...', 'info');
+            btnDirect.innerText = '⏳...';
+            btnDirect.disabled = true;
+
+            chrome.runtime.sendMessage({ type: 'CLEAR_PROXY' }, (res) => {
+                setTimeout(() => {
+                    btnDirect.innerText = '🌐 Direct';
+                    btnDirect.disabled = false;
+
+                    if (res && res.success) {
+                        log('✅ Proxy Disabled (Home IP)', 'success');
+                        const proxyStatus = document.getElementById('proxyStatus');
+                        if (proxyStatus) proxyStatus.innerText = 'Direct Connection';
+                    }
+                }, 1000);
+            });
+        });
+    }
+
     // Listen for messages from Background/Content
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.type === 'LOG_UPDATE') {

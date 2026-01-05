@@ -106,12 +106,16 @@
       <!-- Proxy Controls -->
       <div class="proxy-controls" style="display: flex; gap: 8px; align-items: center;">
         <button class="btn-proxy" id="btnRotateProxy" title="Rotate IP"
-          style="background: #ff9800; border: none; padding: 6px 12px; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px;">
+          style="background: #ff9800; border: none; padding: 6px 12px; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px; flex: 1;">
           🔄 Rotate IP
         </button>
-        <span id="proxyStatus"
-          style="font-size: 10px; color: #888; max-width: 100px; overflow: hidden; text-overflow: ellipsis;"></span>
+
+        <button class="btn-proxy" id="btnDirect" title="No Proxy"
+          style="background: #2196F3; border: none; padding: 6px 12px; border-radius: 4px; color: #fff; cursor: pointer; font-size: 12px; flex: 1;">
+          🌐 Direct
+        </button>
       </div>
+      <span id="proxyStatus" style="font-size: 10px; color: #888; display: block; margin-top: 4px;"></span>
 
       <button class="btn-test" id="btnTest">🧪 Test Sniper</button>
     </footer>

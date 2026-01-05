@@ -172,49 +172,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'ROTATE_PROXY':
-      console.log('[Antigravity] 🔄 Proxy Rotation & Deep Clean Requested');
-
-      // 1. INSTANT RESPONSE (Updates UI immediately)
+      console.log('[Antigravity] 🔄 Rotation Requested');
       sendResponse({ success: true, status: 'ROTATING' });
 
       (async () => {
-        // 2. Rotate Proxy
+        // A. Visual Reset: Go to blank page immediately
+        // This clears the "Too Many Requests" error from the screen instantly
+        const tabs = await chrome.tabs.query({ url: '*://*.blsspainmorocco.net/*' });
+        let activeTabId = null;
+        if (tabs.length > 0) {
+          activeTabId = tabs[0].id;
+          await chrome.tabs.update(activeTabId, { url: 'about:blank' });
+        }
+
+        // B. Rotate & Wipe (Behind the scenes)
         await ProxyManager.rotate();
-
-        // 3. Parallel Wipe (Stealth + Data)
-        const wipePromise = chrome.browsingData.remove(
-          { since: 0 },
-          {
-            cache: true, cookies: true, localStorage: true,
-            indexedDB: true, serviceWorkers: true, cacheStorage: true
-          }
-        );
-        const stealthPromise = StealthManager.rotateIdentity();
-
-        await Promise.all([wipePromise, stealthPromise]);
+        await chrome.browsingData.remove({ since: 0 }, {
+          cache: true, cookies: true, localStorage: true,
+          indexedDB: true, serviceWorkers: true, cacheStorage: true
+        });
+        await StealthManager.rotateIdentity();
         console.log('[Antigravity] ✨ Identity Wiped');
 
-        // 4. FIND & SCRUB ACTIVE TAB
+        // C. Navigate Back (Fresh Clean Load)
+        // Wait a tiny bit for the wipe to take effect
+        setTimeout(() => {
+          const TARGET_URL = 'https://www.blsspainmorocco.net/MAR/account/login';
+          if (activeTabId) {
+            chrome.tabs.update(activeTabId, { url: TARGET_URL });
+          } else {
+            chrome.tabs.create({ url: TARGET_URL });
+          }
+          console.log('[Antigravity] 🔄 Respawned on new IP');
+        }, 500);
+      })();
+      return true;
+
+    case 'CLEAR_PROXY':
+      console.log('[Antigravity] 🔌 Disabling Proxy (Direct Connection)...');
+      (async () => {
+        await ProxyManager.clear();
+
+        // Wipe identity even for direct connection to be safe
+        await chrome.browsingData.remove({ since: 0 }, { cache: true, cookies: true, localStorage: true });
+
+        // Reload active tab
         const tabs = await chrome.tabs.query({ url: '*://*.blsspainmorocco.net/*' });
         if (tabs.length > 0) {
-          const tabId = tabs[0].id;
-
-          // Inject internal scrub
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId },
-              func: () => {
-                window.sessionStorage.clear();
-                window.localStorage.clear();
-                console.log('🧹 Internal Scrub Complete');
-              }
-            });
-          } catch (e) { }
-
-          // Force Hard Reload (Bypass Cache)
-          chrome.tabs.reload(tabId, { bypassCache: true });
-          console.log('[Antigravity] 🔄 Tab Reloaded (Deep Clean)');
+          chrome.tabs.reload(tabs[0].id, { bypassCache: true });
         }
+        sendResponse({ success: true });
       })();
       return true;
 
