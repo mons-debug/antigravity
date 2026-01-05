@@ -133,55 +133,79 @@ const MAX_HISTORY_SIZE = 50;
 // ============================================================================
 
 /**
- * Solve grid captcha by calling NoCaptchaAI API directly.
- * Bypasses localhost server for faster response.
+ * Solve BLS grid captcha by calling NoCaptchaAI API directly.
+ * Uses the "bls" module which returns OCR'd numbers for each cell.
  * 
- * @param {string[]} images - Array of base64 image data
+ * @param {string[]} images - Array of base64 image data (may include data URI prefix)
  * @param {string} target - Target number to find (e.g., "781")
  * @param {string} apiKey - NoCaptchaAI API key
  * @returns {Promise<{success: boolean, matches?: number[], error?: string}>}
  */
 async function solveGridCaptchaDirect(images, target, apiKey) {
-  const API_URL = 'https://api.nocaptchaai.com/solve';
+  const API_URL = 'https://api.nocaptchaai.com/createTask';
 
   try {
-    console.log(`[Background] 🚀 Direct API call for target: ${target}`);
+    console.log(`[Background] 🚀 BLS Module API call for target: "${target}"`);
+    console.log(`[Background] 📸 Processing ${images.length} images...`);
+
+    // CRITICAL: Strip base64 prefix if present
+    const cleanImages = images.map(img => {
+      if (img.startsWith('data:')) {
+        return img.split(',')[1]; // Remove "data:image/png;base64," prefix
+      }
+      return img;
+    });
+
+    // Build payload following NoCaptchaAI BLS module format
+    const payload = {
+      clientKey: apiKey,
+      task: {
+        type: 'ImageToTextTask',
+        module: 'bls',
+        images: cleanImages,
+        maxLength: 3
+      }
+    };
+
+    console.log('[Background] 📤 Sending to API...');
 
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'apikey': apiKey
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        method: 'grid3x3',
-        images: images,
-        target: target,
-        softid: 'antigravity-turbo'
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
       const errText = await response.text();
       console.error(`[Background] ❌ API Error ${response.status}:`, errText);
-      return { success: false, error: `API Error ${response.status}` };
+      return { success: false, error: `API Error ${response.status}: ${errText}` };
     }
 
     const result = await response.json();
-    console.log('[Background] 📦 API Response:', result);
+    console.log('[Background] 📦 API Response:', JSON.stringify(result));
 
-    // Handle NoCaptchaAI response format
-    if (result.status === 'solved' && result.solution) {
-      // Convert solution to array of indices (0-8)
-      const matches = Array.isArray(result.solution)
-        ? result.solution
-        : Object.keys(result.solution).filter(k => result.solution[k]).map(Number);
+    // Handle NoCaptchaAI BLS module response
+    // Expected format: { status: 1, solution: ["113", "888", "113", ...] }
+    if (result.status === 1 && result.solution && Array.isArray(result.solution)) {
+      const solutions = result.solution;
+      console.log(`[Background] 🔢 OCR Results: [${solutions.join(', ')}]`);
 
-      console.log(`[Background] ✅ Solved! Matches: [${matches.join(', ')}]`);
+      // Find indices where solution matches target
+      const matches = [];
+      solutions.forEach((val, idx) => {
+        if (val === target) {
+          matches.push(idx);
+        }
+      });
+
+      console.log(`[Background] ✅ Matches for "${target}": [${matches.join(', ')}]`);
       return { success: true, matches };
-    } else if (result.error) {
-      return { success: false, error: result.error };
+    } else if (result.errorId || result.error) {
+      return { success: false, error: result.errorDescription || result.error || 'API Error' };
     } else {
+      console.warn('[Background] ⚠️ Unexpected response format:', result);
       return { success: false, error: 'Unknown API response format' };
     }
   } catch (err) {
