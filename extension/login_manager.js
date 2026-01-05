@@ -117,6 +117,7 @@ function sleep(ms) {
 /**
  * Wait for session stability after Nuclear Rotation to prevent captcha loops.
  * Waits for document to be fully loaded plus a random settling delay.
+ * Also waits for login form elements to appear in DOM.
  */
 async function waitForStability() {
     console.log('[LoginManager] ⏳ Waiting for session stability...');
@@ -132,12 +133,30 @@ async function waitForStability() {
             };
             window.addEventListener('load', checkReady);
             // Fallback timeout
-            setTimeout(resolve, 3000);
+            setTimeout(resolve, 5000);
         });
     }
 
-    // Additional random settling delay (2000ms - 3000ms)
-    const settlingDelay = 2000 + Math.random() * 1000;
+    // CRITICAL: Wait for login form elements to appear
+    console.log('[LoginManager] ⏳ Waiting for login form elements...');
+    const maxWaitForForm = 8000; // 8 seconds max
+    const startWait = Date.now();
+
+    while (Date.now() - startWait < maxWaitForForm) {
+        const hasEmailField = document.querySelector('input[type="email"], input[type="text"], input#Email, input#UserId, input#txtEmail');
+        const hasPasswordField = document.querySelector('input[type="password"]');
+        const hasButton = document.querySelector('button[type="submit"], input[type="submit"], #btnSubmit, #btnVerify');
+
+        if (hasEmailField || hasPasswordField) {
+            console.log(`[LoginManager] ✅ Form elements found in ${Date.now() - startWait}ms`);
+            break;
+        }
+
+        await sleep(200);
+    }
+
+    // Additional random settling delay (1000ms - 2000ms)
+    const settlingDelay = 1000 + Math.random() * 1000;
     console.log(`[LoginManager] 💤 Settling for ${Math.round(settlingDelay)}ms...`);
     await sleep(settlingDelay);
 
