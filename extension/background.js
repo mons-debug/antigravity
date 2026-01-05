@@ -193,17 +193,41 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     }
 
     // =====================================================================
-    // HANDLE ASYNC TASK (taskId) OR SYNCHRONOUS RESPONSE (solution)
+    // ROBUST RESPONSE PARSING - Check ALL possible response formats
     // =====================================================================
+
+    console.log('[Background] 🔍 Checking response structure...');
+    console.log('[Background] Response keys:', Object.keys(createResult));
+    console.log('[Background] Full response:', JSON.stringify(createResult));
 
     let solution = null;
 
-    // Case 1: Synchronous response (solution already present)
+    // Try to find solution in various possible locations
     if (createResult.solution && Array.isArray(createResult.solution)) {
-      console.log('[Background] ✅ Got synchronous solution');
       solution = createResult.solution;
+      console.log('[Background] ✅ Found in: solution');
+    } else if (createResult.answers && Array.isArray(createResult.answers)) {
+      solution = createResult.answers;
+      console.log('[Background] ✅ Found in: answers');
+    } else if (createResult.result && Array.isArray(createResult.result)) {
+      solution = createResult.result;
+      console.log('[Background] ✅ Found in: result');
+    } else if (createResult.data && Array.isArray(createResult.data)) {
+      solution = createResult.data;
+      console.log('[Background] ✅ Found in: data');
+    } else if (createResult.text && Array.isArray(createResult.text)) {
+      solution = createResult.text;
+      console.log('[Background] ✅ Found in: text');
+    } else if (Array.isArray(createResult)) {
+      solution = createResult;
+      console.log('[Background] ✅ Response is direct array');
     }
-    // Case 2: Async task - need to poll getTaskResult
+    // Check for nested task.solution
+    else if (createResult.task && createResult.task.solution) {
+      solution = createResult.task.solution;
+      console.log('[Background] ✅ Found in: task.solution');
+    }
+    // Async task - need to poll getTaskResult
     else if (createResult.taskId) {
       console.log(`[Background] ⏳ Got taskId: ${createResult.taskId} - Starting polling...`);
 
@@ -232,10 +256,10 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
           return { success: false, error: pollResult.errorDescription || pollResult.error };
         }
 
-        // Check for solution
-        if (pollResult.status === 'ready' && pollResult.solution) {
-          console.log('[Background] ✅ Solution ready!');
-          solution = pollResult.solution;
+        // Check for solution in various fields
+        if (pollResult.status === 'ready' || pollResult.solution || pollResult.answers) {
+          solution = pollResult.solution || pollResult.answers || pollResult.result;
+          console.log('[Background] ✅ Solution ready via polling!');
           break;
         }
 
@@ -249,11 +273,18 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
         return { success: false, error: 'Timeout waiting for solution' };
       }
     }
-    // Case 3: Unknown format
-    else {
-      console.error('[Background] ❌ Unknown response format');
-      console.error('[Background] Response keys:', Object.keys(createResult));
-      return { success: false, error: 'Unknown API response format', rawResponse: createResult };
+
+    // Still no solution found
+    if (!solution) {
+      console.error('[Background] ❌ Could not extract solution from response!');
+      console.error('[Background] Available keys:', Object.keys(createResult).join(', '));
+
+      // Try one more thing: maybe the response IS the solution for single images
+      if (typeof createResult === 'object' && createResult.solution) {
+        solution = [createResult.solution]; // Wrap single solution
+      } else {
+        return { success: false, error: 'Unknown API response format', rawResponse: createResult };
+      }
     }
 
     // =====================================================================
