@@ -186,28 +186,48 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     const result = await response.json();
     console.log('[Background] 📦 API Response:', JSON.stringify(result));
 
-    // Handle NoCaptchaAI BLS module response
-    // Expected format: { status: 1, solution: ["113", "888", "113", ...] }
-    if (result.status === 1 && result.solution && Array.isArray(result.solution)) {
-      const solutions = result.solution;
+    // Parse API response - handle multiple possible formats
+    // Format 1: { status: 1, solution: ["113", "888", "113"] }
+    // Format 2: { status: "solved", solution: [...] }
+    // Format 3: { solution: [...] } (no status)
+
+    let solutions = null;
+
+    // Try to extract solution array from various formats
+    if (result.solution && Array.isArray(result.solution)) {
+      solutions = result.solution;
+    } else if (result.data && Array.isArray(result.data)) {
+      solutions = result.data;
+    } else if (Array.isArray(result)) {
+      solutions = result; // Direct array response
+    }
+
+    if (solutions && solutions.length > 0) {
       console.log(`[Background] 🔢 OCR Results: [${solutions.join(', ')}]`);
 
-      // Find indices where solution matches target
+      // Calculate indices where solution matches target
       const matches = [];
       solutions.forEach((val, idx) => {
-        if (val === target) {
+        // Compare as strings to handle both "123" and 123
+        if (String(val).trim() === String(target).trim()) {
           matches.push(idx);
         }
       });
 
       console.log(`[Background] ✅ Matches for "${target}": [${matches.join(', ')}]`);
       return { success: true, matches };
-    } else if (result.errorId || result.error) {
-      return { success: false, error: result.errorDescription || result.error || 'API Error' };
-    } else {
-      console.warn('[Background] ⚠️ Unexpected response format:', result);
-      return { success: false, error: 'Unknown API response format' };
     }
+
+    // Handle error responses
+    if (result.errorId || result.error || result.errorDescription) {
+      const errMsg = result.errorDescription || result.error || `Error ID: ${result.errorId}`;
+      console.error('[Background] ❌ API Error:', errMsg);
+      return { success: false, error: errMsg };
+    }
+
+    // Unknown format - log full response for debugging
+    console.warn('[Background] ⚠️ Unexpected response format. Full response:', JSON.stringify(result));
+    return { success: false, error: 'Unknown API response format', rawResponse: result };
   } catch (err) {
     console.error('[Background] ❌ Direct API Error:', err);
     return { success: false, error: err.message };
