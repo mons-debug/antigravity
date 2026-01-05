@@ -407,7 +407,7 @@ async function handleBookingGate() {
                 const solved = await solveBookingGridCaptcha();
                 if (solved) {
                     console.log('[Navigator] ✅ Grid Solved! Waiting before submit...');
-                    await new Promise(r => setTimeout(r, 1000)); // Safety wait
+                    await new Promise(r => setTimeout(r, 1000));
 
                     const submitBtn = document.querySelector('input[type="submit"]') ||
                         document.querySelector('button[type="submit"]') ||
@@ -415,14 +415,12 @@ async function handleBookingGate() {
 
                     if (submitBtn) {
                         console.log('[Navigator] 👆 Clicking Submit...');
-                        submitBtn.click();
+                        try { submitBtn.click(); } catch (e) { }
                         return { success: true, action: 'GATE_GRID_SOLVED' };
                     }
                 }
             }
-            // If Grid fails, fall through to check for Text captcha? 
-            // Usually valid logic, but let's return for now to avoid conflict.
-            return { success: false, reason: 'GRID_FAILED' };
+            // If Grid fails, we continue to check Text Captcha below...
         }
 
         // --- STRATEGY B: TEXT CAPTCHA (Fallback) ---
