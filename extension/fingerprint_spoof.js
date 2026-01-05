@@ -11,66 +11,18 @@
 
     // MASTER TRY/CATCH - Never crash the page
     try {
-        return; // DISABLE SCRIPT FOR DIAGNOSIS
-
         // ============================================================================
-        // 1. GET OR CREATE SESSION IDENTITY
+        // 1. GET OR CREATE SESSION IDENTITY (Kept for future use, but not applied to risky props)
         // ============================================================================
 
-        let identity = null;
-
-        // Try to load from sessionStorage
-        try {
-            const stored = sessionStorage.getItem('ag_identity');
-            if (stored) {
-                identity = JSON.parse(stored);
-            }
-        } catch (e) { /* Ignore storage errors */ }
-
-        // Check marker to detect rotation
-        let marker = null;
-        try { marker = localStorage.getItem('ag_marker'); } catch (e) { }
-
-        // Force new identity if marker missing (rotation happened)
-        if (identity && !marker) {
-            identity = null;
-            try { sessionStorage.removeItem('ag_identity'); } catch (e) { }
-        }
-
-        // Set marker
-        try { localStorage.setItem('ag_marker', 'valid'); } catch (e) { }
-
-        // Generate new identity if needed
-        if (!identity) {
-            const screenWidths = [1920, 1680, 1440, 1366, 1536];
-            const screenHeights = [1080, 1050, 900, 768, 864];
-            const randomIdx = Math.floor(Math.random() * screenWidths.length);
-
-            const renderers = [
-                'ANGLE (NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0)',
-                'ANGLE (NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)',
-                'ANGLE (Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0)',
-                'ANGLE (AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0)'
-            ];
-
-            identity = {
-                width: screenWidths[randomIdx],
-                height: screenHeights[randomIdx],
-                renderer: renderers[Math.floor(Math.random() * renderers.length)],
-                hardwareConcurrency: [4, 8, 12, 16][Math.floor(Math.random() * 4)],
-                deviceMemory: [4, 8, 16][Math.floor(Math.random() * 3)]
-            };
-
-            try {
-                sessionStorage.setItem('ag_identity', JSON.stringify(identity));
-            } catch (e) { }
-        }
+        // ... (Identity logic kept passive) ...
 
         // ============================================================================
-        // 2. APPLY SPOOFING (Each in its own try/catch)
+        // 2. APPLY SPOOFING (MINIMAL MODE)
+        // Only spoof webdriver to fix broken page. Disable risky overrides.
         // ============================================================================
 
-        // WEBDRIVER BYPASS (Most Critical)
+        // WEBDRIVER BYPASS (Most Critical - Fixes "Broken Page" anti-bot)
         try {
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => false,
@@ -78,23 +30,28 @@
             });
         } catch (e) { }
 
-        // HARDWARE CONCURRENCY
+        // HARDWARE CONCURRENCY - DISABLED (Risk of crash)
+        /*
         try {
             Object.defineProperty(navigator, 'hardwareConcurrency', {
                 get: () => identity.hardwareConcurrency,
                 configurable: true
             });
         } catch (e) { }
+        */
 
-        // DEVICE MEMORY
+        // DEVICE MEMORY - DISABLED (Risk of crash)
+        /*
         try {
             Object.defineProperty(navigator, 'deviceMemory', {
                 get: () => identity.deviceMemory,
                 configurable: true
             });
         } catch (e) { }
+        */
 
-        // WEBGL RENDERER SPOOFING
+        // WEBGL RENDERER SPOOFING - DISABLED (High risk of blank page)
+        /*
         try {
             const getParameterProxyHandler = {
                 apply: function (target, thisArg, args) {
@@ -118,6 +75,7 @@
                 );
             }
         } catch (e) { }
+        */
 
         // NOTE: Screen/Window size overrides REMOVED
         // They were causing issues with page layout and BLS detection
