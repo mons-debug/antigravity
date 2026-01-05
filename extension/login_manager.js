@@ -611,6 +611,7 @@ async function solveGridCaptcha() {
         if (matches.length === 0) {
             console.warn('[LoginManager] ⚠️ No matches found for target:', target);
             console.log('[LoginManager] 📦 Raw solution:', result.solution);
+            console.log('[LoginManager] 📦 Raw response:', JSON.stringify(result.rawResponse));
             return false;
         }
 

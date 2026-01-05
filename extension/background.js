@@ -601,10 +601,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 type: 'LOG_UPDATE',
                 payload: { message: `✅ Grid solved! Matches: [${result.matches.join(', ')}]`, level: 'success' }
               }).catch(() => { });
-              sendResponse({ success: true, matches: result.matches });
+              sendResponse({ success: true, matches: result.matches, solution: result.solution });
             } else {
               console.error('[Antigravity] ❌ Grid solve failed:', result.error);
-              sendResponse({ success: false, error: result.error });
+              sendResponse({ success: false, error: result.error, rawResponse: result.rawResponse });
             }
             return;
           }
