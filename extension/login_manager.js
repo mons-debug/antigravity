@@ -698,16 +698,8 @@ async function solveGridCaptcha() {
                     }
 
                     // Use robust humanClick for cell selection
+                    // Use robust humanClick for cell selection
                     await humanClick(clickTarget);
-
-                    // FORCE NATIVE CLICK ON PARENT (Ghost Click Fix)
-                    // Some BLS implementations listen on the TD/DIV, not the IMG
-                    if (clickTarget !== img && clickTarget.click) {
-                        try { clickTarget.click(); } catch (e) { }
-                    }
-                    if (parent && parent.click && parent !== clickTarget) {
-                        try { parent.click(); } catch (e) { }
-                    }
 
                     // VISUAL FEEDBACK (Green Border)
                     try {
@@ -719,8 +711,9 @@ async function solveGridCaptcha() {
                     } catch (e) { }
 
                     // HARDENING: Dispatch extra events to ensure selection registers
+                    // BUT ONLY on the target we already clicked
                     try {
-                        const events = ['mousedown', 'mouseup', 'click', 'change', 'input'];
+                        const events = ['change', 'input']; // Removed 'click' to prevent double-toggle
                         events.forEach(evt => {
                             try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
                         });
