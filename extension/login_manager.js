@@ -422,7 +422,7 @@ function getEffectiveZIndex(el) {
 function getVisualGrid() {
     console.log('[LoginManager] 🔬 Finding grid images...');
 
-    // Step 1: Find the EXACT instruction label containing "Please select"
+    // Step 1: Find the EXACT instruction containing "number XXX" (3 digits)
     let label = null;
     const visibleElements = document.querySelectorAll('p, span, div, label, td, th');
 
@@ -433,11 +433,12 @@ function getVisualGrid() {
         // Skip if not visible
         if (el.offsetParent === null && el.tagName !== 'BODY') continue;
 
-        // Get direct text content (not nested)
+        // Get direct text content
         const text = el.textContent?.trim() || '';
 
-        // MUST contain "Please select" to be the instruction - not email or other text
-        if (text.startsWith('Please select') || text.includes('select all boxes with number')) {
+        // STRICT CHECK: Must contain "number" followed by 3 digits (e.g., "number 631")
+        // This is the CAPTCHA instruction format
+        if (text.match(/number\s+\d{3}/i) && text.includes('select')) {
             label = el;
             console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
             break;
