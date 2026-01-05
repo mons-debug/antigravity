@@ -688,6 +688,13 @@ async function solveGridCaptcha() {
 
                 // 5. Send to Server
                 // 5. Send to Server with Timeout
+                // ================================================================
+                // 3. CAPTURE & PROCESS IMAGES (Spatial Clustering)
+                // ================================================================
+                // ... (Image processing logic remains same until fetch) ...
+                // Assuming processedImages is ready (re-implementing the end block):
+
+                // 5. Send to Server with Timeout
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
@@ -710,9 +717,9 @@ async function solveGridCaptcha() {
                 }
                 clearTimeout(timeoutId);
 
-                // 🚨 HANDLE BANS (430 / 403 / 429) -> AUTO ROTATE & RELOAD
+                // 🚨 HANDLE BANS (430 / 403 / 429)
                 if (response.status === 430 || response.status === 403 || response.status === 429) {
-                    console.error('[LoginManager] 🚨 IP BANNED! Status:', response.status, '. Triggering Emergency Rotation.');
+                    console.error('[LoginManager] 🚨 IP BANNED! Status:', response.status);
                     chrome.runtime.sendMessage({
                         type: 'ROTATE_PROXY',
                         reloadTab: true,
@@ -723,80 +730,74 @@ async function solveGridCaptcha() {
 
                 const result = await response.json();
 
-                if (result.success && result.matches) {
-                    console.log('[LoginManager] ✅ Server returned matches:', result.matches);
-
-                    // CRITICAL: Abort if no matches to prevent ban
-                    if (result.matches.length === 0) {
-                        console.warn('[LoginManager] ⚠️ AI found 0 matches. Aborting submit to prevent ban.');
-                        return false;
-                    }
-
-                    // 6. Click Matches - TARGET THE CORRECT CLICKABLE ELEMENT
-                    console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches...`);
-
-                    for (const idx of result.matches) {
-                        const img = gridImages[idx];
-                        if (img) {
-                            console.log(`[LoginManager] 👆 Clicking cell ${idx}`);
-
-                            // Find the CLICKABLE element - BLS wraps images in clickable divs/tds
-                            let clickTarget = img;
-                            const parent = img.parentElement;
-                            const grandparent = parent?.parentElement;
-
-                            if (parent && (parent.onclick || parent.getAttribute('onclick'))) {
-                                clickTarget = parent;
-                            } else if (grandparent && (grandparent.onclick || grandparent.getAttribute('onclick'))) {
-                                clickTarget = grandparent;
-                            } else if (img.closest('[onclick]')) {
-                                clickTarget = img.closest('[onclick]');
-                            }
-
-                            // Use robust humanClick for cell selection
-                            // Use robust humanClick for cell selection
-                            await humanClick(clickTarget);
-
-                            // VISUAL FEEDBACK (Green Border)
-                            try {
-                                img.style.border = '4px solid #00ff00';
-                                img.style.boxSizing = 'border-box';
-                                if (clickTarget !== img) {
-                                    clickTarget.style.border = '2px solid #00ff00';
-                                }
-                            } catch (e) { }
-
-                            // HARDENING: Dispatch extra events to ensure selection registers
-                            // BUT ONLY on the target we already clicked
-                            try {
-                                const events = ['change', 'input']; // Removed 'click' to prevent double-toggle
-                                events.forEach(evt => {
-                                    try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
-                                });
-                            } catch (e) { }
-
-                            await sleep(100 + Math.random() * 50);
-                        }
-                    }
-
-                    // ================================================================
-                    // SAFETY PAUSE: Allow selection network requests to complete
-                    // before Submit button is clicked (1-2 seconds)
-                    // ================================================================
-                    const safetyPause = 1000 + Math.random() * 1000;
-                    console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
-                    await sleep(safetyPause);
-
-                    console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
-                    return true;
-                } else {
-                    console.error('[LoginManager] Server failed to solve:', result.error);
+                // ERROR HANDLING (Guard Clause)
+                if (!result.success || !result.matches) {
+                    console.error('[LoginManager] Server failed to solve:', result.error || 'Unknown error');
                     return false;
                 }
+
+                console.log('[LoginManager] ✅ Server returned matches:', result.matches);
+
+                // CRITICAL: Abort if no matches
+                if (result.matches.length === 0) {
+                    console.warn('[LoginManager] ⚠️ AI found 0 matches. Aborting submit.');
+                    return false;
+                }
+
+                // 6. Click Matches
+                console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches...`);
+
+                for (const idx of result.matches) {
+                    const img = gridImages[idx];
+                    if (img) {
+                        console.log(`[LoginManager] 👆 Clicking cell ${idx}`);
+
+                        // Find clickable element
+                        let clickTarget = img;
+                        const parent = img.parentElement;
+                        const grandparent = parent?.parentElement;
+
+                        if (parent && (parent.onclick || parent.getAttribute('onclick'))) {
+                            clickTarget = parent;
+                        } else if (grandparent && (grandparent.onclick || grandparent.getAttribute('onclick'))) {
+                            clickTarget = grandparent;
+                        } else if (img.closest('[onclick]')) {
+                            clickTarget = img.closest('[onclick]');
+                        }
+
+                        await humanClick(clickTarget);
+
+                        // Visual Feedback
+                        try {
+                            img.style.border = '4px solid #00ff00';
+                            img.style.boxSizing = 'border-box';
+                            if (clickTarget !== img) clickTarget.style.border = '2px solid #00ff00';
+                        } catch (e) { }
+
+                        // Dispatch Events
+                        try {
+                            const events = ['change', 'input'];
+                            events.forEach(evt => {
+                                try { clickTarget.dispatchEvent(new Event(evt, { bubbles: true })); } catch (e) { }
+                            });
+                        } catch (e) { }
+
+                        await sleep(100 + Math.random() * 50);
+                    }
+                }
+
+                // Safety Pause
+                const safetyPause = 1000 + Math.random() * 1000;
+                console.log(`[LoginManager] 💤 Safety pause ${Math.round(safetyPause)}ms before submit...`);
+                await sleep(safetyPause);
+
+                console.log(`[LoginManager] ✅ Clicked all ${result.matches.length} matches!`);
+                return true;
+
+            } catch (error) {
+                console.error('[LoginManager] Error in solveGridCaptcha:', error);
+                return false;
             }
-        } catch (error) {
-            console.error('[LoginManager] Error in solveGridCaptcha:', error);
-            return false;
         }
 
         function reset() {
