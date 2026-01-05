@@ -778,47 +778,48 @@ async function solveGridCaptcha() {
             return false;
         }
 
-        // 6. Click Matches (The CLICK HAMMER)
-        console.log(`[LoginManager] ⚡ Clicking ${result.matches.length} matches (Aggressive Mode)...`);
+        // 6. Click Matches (SURGICAL MODE)
+        console.log(`[LoginManager] 🔬 Clicking ${result.matches.length} matches (Surgical Mode)...`);
 
         for (const idx of result.matches) {
             const img = gridImages[idx];
-            if (img) {
-                console.log(`[LoginManager] � Hammering cell ${idx}`);
+            if (!img) continue;
 
-                // 1. Identify all targets (Image, Parent, Grandparent)
-                const targets = [img];
-                if (img.parentElement) targets.push(img.parentElement);
-                if (img.parentElement?.parentElement) targets.push(img.parentElement.parentElement);
+            console.log(`[LoginManager] 🎯 Targeting cell ${idx}`);
 
-                // 2. Click them all
-                for (const target of targets) {
-                    if (target.onclick || target.getAttribute('onclick') || targets.indexOf(target) === 0) {
-                        try {
-                            target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                            target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                            target.click();
-                        } catch (e) { }
-                    }
-                }
+            // SURGICAL TARGETING: Find the EXACT clickable element
+            // Priority: 1. Element with onclick handler 2. Parent TD 3. Image itself
+            const target = img.closest('[onclick]') || img.closest('td') || img;
 
-                await humanClick(img);
+            // Clean Event Sequence (mousedown -> mouseup -> click)
+            try {
+                const rect = target.getBoundingClientRect();
+                const eventParams = {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    clientX: rect.left + rect.width / 2,
+                    clientY: rect.top + rect.height / 2
+                };
 
-                // 3. Visual Feedback
-                try {
-                    img.style.border = '3px solid #00ff00';
-                    img.style.boxSizing = 'border-box';
-                } catch (e) { }
+                target.dispatchEvent(new MouseEvent('mousedown', eventParams));
+                await sleep(30 + Math.random() * 20);
+                target.dispatchEvent(new MouseEvent('mouseup', eventParams));
+                await sleep(10);
+                target.click();
 
-                // 4. Dispatch Force Events
-                try {
-                    const params = { bubbles: true, cancelable: true, view: window };
-                    img.dispatchEvent(new Event('change', params));
-                    img.dispatchEvent(new Event('input', params));
-                } catch (e) { }
-
-                await sleep(100 + Math.random() * 50);
+                console.log(`[LoginManager] ✅ Clicked: ${target.tagName}${target.id ? '#' + target.id : ''}`);
+            } catch (e) {
+                console.warn(`[LoginManager] ⚠️ Click failed for cell ${idx}:`, e.message);
             }
+
+            // Visual Feedback (on the IMAGE for user confirmation)
+            try {
+                img.style.border = '3px solid #00ff00';
+                img.style.boxSizing = 'border-box';
+            } catch (e) { }
+
+            await sleep(80 + Math.random() * 40);
         }
 
         // 7. SMART SUBMIT

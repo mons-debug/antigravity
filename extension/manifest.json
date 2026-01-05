@@ -48,7 +48,8 @@
                 "content.js"
             ],
             "run_at": "document_start",
-            "all_frames": true
+            "all_frames": true,
+            "world": "ISOLATED"
         }
     ],
     "options_page": "options.html",
