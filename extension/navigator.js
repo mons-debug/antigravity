@@ -86,9 +86,29 @@ let lastGateSubmitTime = 0; // Lock to prevent submit spam loop
 // UTILITY FUNCTIONS
 // ============================================================================
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
 function randomDelay(min = NAVIGATOR_CONFIG.delays.min, max = NAVIGATOR_CONFIG.delays.max) {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
     return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * Smart Wait: Polls for an element until it exists or timeout
+ * @param {string} selector 
+ * @param {number} timeout 
+ * @returns {Promise<Element|null>}
+ */
+async function waitForElement(selector, timeout = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        const el = document.querySelector(selector);
+        if (el && isVisible(el)) return el;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    return null;
 }
 
 function trustedClick(element) {
@@ -192,7 +212,7 @@ async function setDropdownValue(selector, value, waitForReload = false) {
 }
 
 /**
- * Solve Grid CAPTCHA on booking gate (reuses LoginManager logic)
+ * Solve Grid CAPTCHA on booking gate (delegates to LoginManager)
  */
 async function solveBookingGridCaptcha() {
     console.log('[Navigator] 🎯 Solving booking gate grid CAPTCHA...');
@@ -203,116 +223,8 @@ async function solveBookingGridCaptcha() {
         return await globalThis.AntigravityLoginManager.solveGridCaptcha();
     }
 
-    // If LoginManager not available, trigger via message to content.js which has access
-    // This is a fallback - the actual grid solving logic is in login_manager.js
-    console.log('[Navigator] LoginManager not directly available, using internal grid solver...');
-
-    try {
-        // ================================================================
-        // SMART WAIT - Ensure page is fully loaded before solving
-        // ================================================================
-        console.log('[Navigator] ⏳ Waiting for captcha page to fully load...');
-
-        const maxWaitMs = 5000;
-        const startWait = Date.now();
-
-        while (Date.now() - startWait < maxWaitMs) {
-            const hasInstruction = document.body.innerText.match(/select.*boxes.*number\s*\d{3}/i) ||
-                document.body.innerText.match(/Please select/i);
-            const gridImagesCheck = Array.from(document.querySelectorAll('img')).filter(img => {
-                const rect = img.getBoundingClientRect();
-                return rect.width >= 50 && rect.width <= 200 && rect.height >= 50;
-            });
-
-            if (hasInstruction && gridImagesCheck.length >= 9) {
-                console.log(`[Navigator] ✅ Page ready in ${Date.now() - startWait}ms`);
-                break;
-            }
-
-            await new Promise(r => setTimeout(r, 200));
-        }
-
-        // Get API key from storage
-        const result = await chrome.storage.local.get(['globalSettings']);
-        const apiKey = result.globalSettings?.captchaApiKey || '';
-
-        if (!apiKey) {
-            console.warn('[Navigator] No API key for grid CAPTCHA');
-            return false;
-        }
-
-        // Find grid images and target
-        const bodyText = document.body.innerText;
-        const targetMatch = bodyText.match(/(?:select|choose).*?(?:boxes|images).*?(?:with|number)\s*(\d{3})/i);
-        const target = targetMatch ? targetMatch[1] : '';
-
-        if (!target) {
-            console.warn('[Navigator] Could not find target number');
-            return false;
-        }
-
-        console.log(`[Navigator] Target number: ${target}`);
-
-        // Get grid images
-        const allImages = Array.from(document.querySelectorAll('img'));
-        const captchaImages = allImages.filter(img => {
-            const rect = img.getBoundingClientRect();
-            return rect.width >= 50 && rect.width <= 200 &&
-                rect.height >= 50 && rect.height <= 200 &&
-                (img.onclick || img.closest('[onclick]') || img.src.toLowerCase().includes('cap'));
-        }).slice(0, 9);
-
-        if (captchaImages.length < 9) {
-            console.warn(`[Navigator] Only found ${captchaImages.length} grid images`);
-            return false;
-        }
-
-        // Convert to base64
-        const processedImages = await Promise.all(captchaImages.map(async img => {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth || img.width;
-                canvas.height = img.naturalHeight || img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                return canvas.toDataURL('image/png');
-            } catch (e) {
-                return img.src;
-            }
-        }));
-
-        // Send to server
-        const response = await fetch('http://localhost:3000/solve-grid-captcha', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: processedImages, target, apiKey })
-        });
-
-        const data = await response.json();
-
-        if (data.success && data.matches && data.matches.length > 0) {
-            console.log(`[Navigator] Server returned matches: ${data.matches}`);
-
-            // Click matches
-            for (const idx of data.matches) {
-                const img = captchaImages[idx];
-                if (img) {
-                    let clickTarget = img.closest('[onclick]') || img.parentElement || img;
-                    if (clickTarget.onclick) clickTarget.onclick();
-                    clickTarget.click();
-                    await new Promise(r => setTimeout(r, 100));
-                }
-            }
-
-            console.log('[Navigator] ✅ Grid clicks completed!');
-            return true;
-        }
-
-        return false;
-    } catch (error) {
-        console.error('[Navigator] Grid CAPTCHA error:', error);
-        return false;
-    }
+    console.warn('[Navigator] LoginManager unavailable. Cannot solve grid.');
+    return false;
 }
 
 // ============================================================================
@@ -395,12 +307,10 @@ async function handleBookingGate() {
 
     try {
         // COOLDOWN CHECK: Prevent spamming submit while waiting for navigation
-        if (Date.now() - lastGateSubmitTime < 10000) {
-            console.log('[Navigator] 🛑 Submit cooldown active (10s), waiting for page to navigate...');
+        if (Date.now() - lastGateSubmitTime < 5000) {
+            console.log('[Navigator] 🛑 Submit cooldown active (5s), waiting for page to navigate...');
             return { success: true, reason: 'WAITING_FOR_NAVIGATION' };
         }
-
-        await randomDelay(100, 200);
 
         // --- STRATEGY A: GRID CAPTCHA (Priority) ---
         const gridImages = document.querySelectorAll('img[src*="cap"]');
@@ -411,22 +321,20 @@ async function handleBookingGate() {
         if (hasGridCaptcha) {
             console.log('[Navigator] 🎯 Grid CAPTCHA detected');
 
-            if (typeof globalThis.AntigravityLoginManager !== 'undefined') {
-                const solved = await solveBookingGridCaptcha();
-                if (solved) {
-                    console.log('[Navigator] ✅ Grid Solved! Waiting before submit...');
-                    await new Promise(r => setTimeout(r, 1000));
+            const solved = await solveBookingGridCaptcha();
+            if (solved) {
+                console.log('[Navigator] ✅ Grid Solved! Waiting for submit button...');
 
-                    const submitBtn = document.querySelector('input[type="submit"]') ||
-                        document.querySelector('button[type="submit"]') ||
-                        document.querySelector('#btnSubmit');
+                // Smart Wait for Submit Button
+                const submitBtn = await waitForElement('input[type="submit"], button[type="submit"], #btnSubmit', 3000);
 
-                    if (submitBtn) {
-                        console.log('[Navigator] 👆 Clicking Submit...');
-                        try { submitBtn.click(); } catch (e) { }
-                        lastGateSubmitTime = Date.now(); // Set lock
-                        return { success: true, action: 'GATE_GRID_SOLVED' };
-                    }
+                if (submitBtn) {
+                    console.log('[Navigator] 👆 Clicking Submit (Smart Wait)...');
+                    trustedClick(submitBtn);
+                    lastGateSubmitTime = Date.now(); // Set lock
+                    return { success: true, action: 'GATE_GRID_SOLVED' };
+                } else {
+                    console.warn('[Navigator] ❌ Grid solved but submit button NOT found!');
                 }
             }
             // If Grid fails, we continue to check Text Captcha below...
@@ -463,8 +371,11 @@ async function handleBookingGate() {
                     console.log('[Navigator] Solution:', response.solution);
                     captchaInput.value = response.solution;
                     captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // Smart Wait for Verify Button to be clickable (optional, but good practice)
                     await randomDelay(200, 400);
                     trustedClick(verifyBtn);
+
                     lastGateSubmitTime = Date.now(); // Set lock
                     return { success: true, action: 'GATE_TEXT_SOLVED' };
                 }
