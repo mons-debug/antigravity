@@ -205,8 +205,14 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     // Try to find solution in various possible locations
     if (createResult.solution && Array.isArray(createResult.solution)) {
       solution = createResult.solution;
-      console.log('[Background] ✅ Found in: solution');
-    } else if (createResult.answers && Array.isArray(createResult.answers)) {
+      console.log('[Background] ✅ Found in: solution (array)');
+    }
+    // CRITICAL: NoCaptchaAI returns { solution: { text: [...] } }
+    else if (createResult.solution && createResult.solution.text && Array.isArray(createResult.solution.text)) {
+      solution = createResult.solution.text;
+      console.log('[Background] ✅ Found in: solution.text');
+    }
+    else if (createResult.answers && Array.isArray(createResult.answers)) {
       solution = createResult.answers;
       console.log('[Background] ✅ Found in: answers');
     } else if (createResult.result && Array.isArray(createResult.result)) {

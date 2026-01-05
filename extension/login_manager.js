@@ -527,16 +527,33 @@ async function solveGridCaptcha() {
             return false;
         }
 
-        // 2. Extract Target Number (Quick scan)
+        // 2. Extract Target Number from instruction element
         let target = '';
-        const bodyText = document.body.innerText;
-        const match = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
-        if (match) {
-            target = match[1];
-            console.log(`[LoginManager] 🎯 Target: "${target}"`);
-        } else {
-            console.warn('[LoginManager] ⚠️ Target number not found.');
-            return false;
+
+        // Find the instruction element containing "number XXX"
+        const instructionElements = document.querySelectorAll('p, span, div, label, td');
+        for (const el of instructionElements) {
+            const text = el.textContent?.trim() || '';
+            // Must contain "select" and "number" followed by 3 digits
+            const numMatch = text.match(/number\s+(\d{3})/i);
+            if (text.includes('select') && numMatch) {
+                target = numMatch[1];
+                console.log(`[LoginManager] 🎯 Target: "${target}" (from: "${text.substring(0, 50)}...")`);
+                break;
+            }
+        }
+
+        if (!target) {
+            // Fallback: scan body text
+            const bodyText = document.body.innerText;
+            const fallbackMatch = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
+            if (fallbackMatch) {
+                target = fallbackMatch[1];
+                console.log(`[LoginManager] 🎯 Target (fallback): "${target}"`);
+            } else {
+                console.warn('[LoginManager] ⚠️ Target number not found.');
+                return false;
+            }
         }
 
         // 3. Get Grid Images
@@ -590,20 +607,36 @@ async function solveGridCaptcha() {
         // Parse matches from various response formats
         let matches = [];
 
-        // Format 1: Direct matches array
-        if (result.matches && Array.isArray(result.matches)) {
+        // Extract solution array - handle nested formats
+        let solutionArray = null;
+        if (result.matches && Array.isArray(result.matches) && result.matches.length > 0) {
+            // Already has matches from background
             matches = result.matches;
-        }
-        // Format 2: Solution array (text) - convert to indices
-        else if (result.solution && Array.isArray(result.solution)) {
-            result.solution.forEach((val, idx) => {
-                if (String(val) === String(target)) {
-                    matches.push(idx);
+            console.log(`[LoginManager] ✅ Using pre-computed matches: [${matches.join(', ')}]`);
+        } else {
+            // Need to extract solution and compute matches locally
+            if (result.solution) {
+                if (Array.isArray(result.solution)) {
+                    solutionArray = result.solution;
+                } else if (result.solution.text && Array.isArray(result.solution.text)) {
+                    // NoCaptchaAI returns { solution: { text: [...] } }
+                    solutionArray = result.solution.text;
+                    console.log('[LoginManager] 📦 Extracted from solution.text');
                 }
-            });
+            }
+
+            if (solutionArray) {
+                console.log(`[LoginManager] 📦 OCR Results: [${solutionArray.join(', ')}]`);
+                solutionArray.forEach((val, idx) => {
+                    if (String(val).trim() === String(target).trim()) {
+                        matches.push(idx);
+                    }
+                });
+            }
         }
-        // Format 3: Error
-        else if (result.error) {
+
+        // Error handling
+        if (result.error) {
             console.error('[LoginManager] ❌ API Error:', result.error);
             return false;
         }
