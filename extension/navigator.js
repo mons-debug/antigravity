@@ -389,69 +389,50 @@ async function handleDashboardNavigation() {
 async function handleBookingGate() {
     if (isNavigating) return { success: false, reason: 'IN_PROGRESS' };
     isNavigating = true;
-    console.log('[Navigator] 🛡️ Booking Gate Captcha detected');
+    console.log('[Navigator] 🛡️ Booking Gate detected');
 
     try {
-        await randomDelay(100, 200); // Fast startup
+        await randomDelay(100, 200);
 
-        // ================================================================
-        // CHECK 1: GRID CAPTCHA (like login page)
-        // ================================================================
+        // --- STRATEGY A: GRID CAPTCHA (Priority) ---
         const gridImages = document.querySelectorAll('img[src*="cap"]');
         const hasGridCaptcha = gridImages.length >= 9 ||
             document.body.innerText.includes('select all boxes') ||
             document.body.innerText.includes('Please select');
 
         if (hasGridCaptcha) {
-            console.log('[Navigator] 🎯 Grid CAPTCHA detected on booking gate');
+            console.log('[Navigator] 🎯 Grid CAPTCHA detected');
 
-            // Use the same grid solving logic as login
-            const solved = await solveBookingGridCaptcha();
-            if (solved) {
-                console.log('[Navigator] ✅ Booking Grid CAPTCHA solved!');
+            if (typeof globalThis.AntigravityLoginManager !== 'undefined') {
+                const solved = await solveBookingGridCaptcha();
+                if (solved) {
+                    console.log('[Navigator] ✅ Grid Solved! Waiting before submit...');
+                    await new Promise(r => setTimeout(r, 1000)); // Safety wait
 
-                // Wait before submitting (1 second with randomness)
-                console.log('[Navigator] ⏳ Waiting 1.0s before submitting...');
-                await new Promise(r => setTimeout(r, 800 + Math.random() * 400));
+                    const submitBtn = document.querySelector('input[type="submit"]') ||
+                        document.querySelector('button[type="submit"]') ||
+                        document.querySelector('#btnSubmit');
 
-                // Find and click Submit button
-                const submitBtn = document.querySelector('input[type="submit"]') ||
-                    document.querySelector('button[type="submit"]') ||
-                    document.querySelector('#btnSubmit') ||
-                    document.querySelector('input.btn-warning') ||
-                    document.evaluate("//button[contains(text(),'Submit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-
-                if (submitBtn) {
-                    console.log('[Navigator] 👆 Clicking Submit button...');
-                    try {
+                    if (submitBtn) {
+                        console.log('[Navigator] 👆 Clicking Submit...');
                         submitBtn.click();
-                    } catch (e) {
-                        console.error('[Navigator] Submit click failed:', e);
-                        try { submitBtn.click(); } catch (err) { }
+                        return { success: true, action: 'GATE_GRID_SOLVED' };
                     }
-                    return { success: true, action: 'GATE_GRID_SOLVED' };
-                } else {
-                    console.warn('[Navigator] ⚠️ Submit button not found on booking gate!');
                 }
-
-                return { success: true, action: 'GATE_GRID_SOLVED' };
             }
-
-            console.warn('[Navigator] Grid captcha solving failed');
-            return { success: false, reason: 'GRID_CAPTCHA_FAILED' };
+            // If Grid fails, fall through to check for Text captcha? 
+            // Usually valid logic, but let's return for now to avoid conflict.
+            return { success: false, reason: 'GRID_FAILED' };
         }
 
-        // ================================================================
-        // CHECK 2: TEXT CAPTCHA (traditional captcha with input)
-        // ================================================================
-        console.log('[Navigator] Checking for Text CAPTCHA...');
+        // --- STRATEGY B: TEXT CAPTCHA (Fallback) ---
         const checkSelectors = NAVIGATOR_CONFIG.selectors.bookingGate;
         const captchaImg = findElement([checkSelectors.captchaImage]);
         const captchaInput = findElement([checkSelectors.captchaInput]);
         const verifyBtn = findElement([checkSelectors.verifyButton]);
 
         if (captchaImg && captchaInput && verifyBtn) {
-            console.log('[Navigator] Found Text CAPTCHA, solving...');
+            console.log('[Navigator] 🔤 Text CAPTCHA detected');
 
             let base64Image = null;
             try {
@@ -462,8 +443,7 @@ async function handleBookingGate() {
                 ctx.drawImage(captchaImg, 0, 0);
                 base64Image = canvas.toDataURL('image/png').split(',')[1];
             } catch (e) {
-                console.error('[Navigator] Failed to capture captcha:', e);
-                return { success: false, reason: 'CAPTURE_FAILED' };
+                console.error('[Navigator] Capture failed:', e);
             }
 
             if (base64Image) {
@@ -473,18 +453,17 @@ async function handleBookingGate() {
                 });
 
                 if (response && response.success && response.solution) {
-                    console.log('[Navigator] Text CAPTCHA Solved:', response.solution);
+                    console.log('[Navigator] Solution:', response.solution);
                     captchaInput.value = response.solution;
                     captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    await randomDelay(100, 200);
+                    await randomDelay(200, 400);
                     trustedClick(verifyBtn);
                     return { success: true, action: 'GATE_TEXT_SOLVED' };
                 }
             }
         }
 
-        // No captcha found
-        return { success: false, reason: 'CAPTCHA_NOT_FOUND_OR_FAILED' };
+        return { success: false, reason: 'NO_CAPTCHA_FOUND' };
 
     } catch (error) {
         console.error('[Navigator] Gate error:', error);

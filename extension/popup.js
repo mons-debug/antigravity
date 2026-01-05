@@ -299,51 +299,30 @@ function setupEventListeners() {
 
     if (btnRotate) {
         btnRotate.addEventListener('click', () => {
-            // ========================================================================
-            // INSTANT FEEDBACK: Change UI immediately on click
-            // ========================================================================
-            btnRotate.disabled = true;
+            // INSTANT FEEDBACK
+            log('🔄 Scrubbing session...', 'warning');
             btnRotate.innerText = '🧼 SCRUBBING...';
-            btnRotate.style.background = '#ff9800'; // Orange/Warning color
-            log('🧼 Deep clean rotation initiated...', 'warning');
+            btnRotate.style.background = '#ff9800'; // Orange
+            btnRotate.disabled = true;
 
             chrome.runtime.sendMessage({ type: 'ROTATE_PROXY' }, (res) => {
-                if (res && res.success && res.proxy) {
-                    // ================================================================
-                    // SUCCESS STATE: Show green confirmation
-                    // ================================================================
-                    const ip = res.proxy.split(':')[0];
-
+                // Background returns immediately now
+                setTimeout(() => {
                     btnRotate.innerText = '✅ CLEAN';
                     btnRotate.style.background = '#4caf50'; // Green
 
-                    // Update proxy status display
-                    if (proxyStatus) proxyStatus.innerText = ip;
+                    // Update IP Display
+                    chrome.runtime.sendMessage({ type: 'GET_PROXY_STATUS' }, (s) => {
+                        if (s?.status?.ip && proxyStatus) proxyStatus.innerText = s.status.ip;
+                    });
 
-                    log(`✅ Clean session: ${ip}`, 'success');
-
-                    // ================================================================
-                    // AUTO-RESET: Return to normal state after 1.5 seconds
-                    // ================================================================
+                    // Reset button after 1.5s
                     setTimeout(() => {
                         btnRotate.innerText = '🔄 Rotate IP';
-                        btnRotate.style.background = ''; // Reset to default (CSS)
+                        btnRotate.style.background = '#ff9800';
                         btnRotate.disabled = false;
                     }, 1500);
-                } else {
-                    // ================================================================
-                    // ERROR STATE: Show failure and reset
-                    // ================================================================
-                    log(`❌ Rotation failed: ${res?.error || 'Unknown'}`, 'error');
-                    btnRotate.innerText = '❌ FAILED';
-                    btnRotate.style.background = '#d32f2f'; // Dark red
-
-                    setTimeout(() => {
-                        btnRotate.innerText = '🔄 Rotate IP';
-                        btnRotate.style.background = '';
-                        btnRotate.disabled = false;
-                    }, 1500);
-                }
+                }, 500); // Visual delay for feel
             });
         });
 
