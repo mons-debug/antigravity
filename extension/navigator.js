@@ -78,7 +78,9 @@ const NAVIGATOR_CONFIG = {
 let isNavigating = false;
 let navigationAttempts = 0;
 const MAX_ATTEMPTS = 3;
+
 let isCamping = false;
+let lastGateSubmitTime = 0; // Lock to prevent submit spam loop
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -392,6 +394,12 @@ async function handleBookingGate() {
     console.log('[Navigator] 🛡️ Booking Gate detected');
 
     try {
+        // COOLDOWN CHECK: Prevent spamming submit while waiting for navigation
+        if (Date.now() - lastGateSubmitTime < 10000) {
+            console.log('[Navigator] 🛑 Submit cooldown active (10s), waiting for page to navigate...');
+            return { success: true, reason: 'WAITING_FOR_NAVIGATION' };
+        }
+
         await randomDelay(100, 200);
 
         // --- STRATEGY A: GRID CAPTCHA (Priority) ---
@@ -416,6 +424,7 @@ async function handleBookingGate() {
                     if (submitBtn) {
                         console.log('[Navigator] 👆 Clicking Submit...');
                         try { submitBtn.click(); } catch (e) { }
+                        lastGateSubmitTime = Date.now(); // Set lock
                         return { success: true, action: 'GATE_GRID_SOLVED' };
                     }
                 }
@@ -456,6 +465,7 @@ async function handleBookingGate() {
                     captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
                     await randomDelay(200, 400);
                     trustedClick(verifyBtn);
+                    lastGateSubmitTime = Date.now(); // Set lock
                     return { success: true, action: 'GATE_TEXT_SOLVED' };
                 }
             }
