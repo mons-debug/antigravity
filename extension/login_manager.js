@@ -420,94 +420,57 @@ function getEffectiveZIndex(el) {
  * Excludes script/style tags and focuses on visible text elements.
  */
 function getVisualGrid() {
-    console.log('[LoginManager] 🔬 Finding grid images...');
+    console.log('[LoginManager] 🔬 Finding grid container...');
 
-    // Step 1: Find the visible CAPTCHA instruction element
-    let label = null;
-    const allElements = document.querySelectorAll('*');
+    // 1. Find the instruction text
+    const allElements = document.querySelectorAll('div, span, p, label, b, strong');
+    let instructionEl = null;
 
     for (const el of allElements) {
-        // Skip script/style/noscript
-        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') continue;
-
-        // Get visible text
-        const text = (el.innerText || '').trim();
-
-        // Must match CAPTCHA instruction pattern
-        if (text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+\d{3}/i)) {
-            const rect = el.getBoundingClientRect();
-
-            // Check visibility
-            if (rect.width > 0 && rect.height > 0 &&
-                rect.top < window.innerHeight && rect.bottom > 0) {
-                label = el;
-                console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
-                break;
-            }
+        if (el.innerText && el.innerText.includes('Please select all boxes')) {
+            instructionEl = el;
+            break;
         }
     }
 
-    // Step 2: Find grid images - look for 3x3 grid pattern
-    // Strategy: Find all images with proper size, sort by position, take 9
-    const allImages = Array.from(document.querySelectorAll('img'));
+    if (!instructionEl) {
+        console.warn('[LoginManager] ⚠️ Instruction text not found.');
+        return [];
+    }
 
-    console.log(`[LoginManager] 📷 Total images on page: ${allImages.length}`);
+    // 2. Find the container (Parent or Sibling)
+    // BLS usually puts the grid in a table or div immediately following the text
+    let container = instructionEl.parentElement;
+    while (container && container.tagName !== 'BODY') {
+        const imgs = container.querySelectorAll('img');
+        if (imgs.length >= 9) {
+            console.log('[LoginManager] 📦 Found container:', container.tagName, 'with', imgs.length, 'images');
+            break;
+        }
+        container = container.parentElement;
+    }
 
-    // Filter to grid-sized, visible, clickable images
-    const gridImages = allImages.filter(img => {
+    if (!container) return [];
+
+    // 3. Select ONLY images inside this container
+    // Filter: Visible + Size > 50px
+    const validImages = Array.from(container.querySelectorAll('img')).filter(img => {
         const rect = img.getBoundingClientRect();
-
-        // Must be visible
-        if (img.offsetParent === null) return false;
-        if (rect.width === 0 || rect.height === 0) return false;
-
-        // Size check: typical CAPTCHA cells are 60-150px
-        const w = rect.width;
-        const h = rect.height;
-        if (w < 40 || w > 200) return false;
-        if (h < 40 || h > 200) return false;
-
-        // Must be roughly square (aspect ratio between 0.7 and 1.4)
-        const aspect = w / h;
-        if (aspect < 0.7 || aspect > 1.4) return false;
-
-        // Must be on screen
-        if (rect.top < 0 || rect.left < 0) return false;
-
-        // Must be clickable (has onclick, or inside table cell, or has pointer cursor)
-        const style = window.getComputedStyle(img);
-        const isClickable =
-            img.onclick ||
-            img.hasAttribute('onclick') ||
-            img.closest('[onclick]') ||
-            img.closest('td') ||
-            style.cursor === 'pointer';
-
-        return isClickable;
+        return rect.width > 50 && rect.width < 200 &&
+            rect.height > 50 && rect.height < 200 &&
+            rect.top > 0;
     });
 
-    console.log(`[LoginManager] ✅ Found ${gridImages.length} grid-candidate images`);
-
-    // Step 3: Sort by position (Row-major: Top->Bottom, Left->Right)
-    gridImages.sort((a, b) => {
+    // 4. Sort and Slice
+    // Sort Top-to-Bottom, then Left-to-Right
+    validImages.sort((a, b) => {
         const rA = a.getBoundingClientRect();
         const rB = b.getBoundingClientRect();
-        // Same row if within 20px vertical
-        if (Math.abs(rA.top - rB.top) > 20) return rA.top - rB.top;
+        if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
         return rA.left - rB.left;
     });
 
-    // Take first 9 (3x3 grid)
-    const finalGrid = gridImages.slice(0, 9);
-    console.log(`[LoginManager] 🗺️ Grid: Using ${finalGrid.length} images`);
-
-    // Log dimensions for debugging
-    if (finalGrid.length > 0) {
-        const first = finalGrid[0].getBoundingClientRect();
-        console.log(`[LoginManager] 📐 First image size: ${Math.round(first.width)}x${Math.round(first.height)}`);
-    }
-
-    return finalGrid;
+    return validImages.slice(0, 9);
 }
 
 /**
