@@ -527,33 +527,42 @@ async function solveGridCaptcha() {
             return false;
         }
 
-        // 2. Extract Target Number from instruction element
+        // 2. Extract Target Number - MUST match EXACT instruction format
         let target = '';
 
-        // Find the instruction element containing "number XXX"
-        const instructionElements = document.querySelectorAll('p, span, div, label, td');
-        for (const el of instructionElements) {
-            const text = el.textContent?.trim() || '';
-            // Must contain "select" and "number" followed by 3 digits
-            const numMatch = text.match(/number\s+(\d{3})/i);
-            if (text.includes('select') && numMatch) {
-                target = numMatch[1];
-                console.log(`[LoginManager] 🎯 Target: "${target}" (from: "${text.substring(0, 50)}...")`);
+        // STRICT: Look for exact "Please select all boxes with number XXX" pattern
+        const allElements = document.querySelectorAll('p, span, div, label, td, h1, h2, h3, h4');
+        for (const el of allElements) {
+            // Use innerText to get VISIBLE text only
+            const text = (el.innerText || el.textContent || '').trim();
+
+            // EXACT pattern match - must be the CAPTCHA instruction
+            const exactMatch = text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+(\d{3})/i);
+            if (exactMatch) {
+                target = exactMatch[1];
+                console.log(`[LoginManager] 🎯 Target: "${target}" (EXACT match)`);
                 break;
             }
         }
 
+        // Secondary fallback - search for visible text with "boxes" and "number"
         if (!target) {
-            // Fallback: scan body text
-            const bodyText = document.body.innerText;
-            const fallbackMatch = bodyText.match(/select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i);
-            if (fallbackMatch) {
-                target = fallbackMatch[1];
-                console.log(`[LoginManager] 🎯 Target (fallback): "${target}"`);
-            } else {
-                console.warn('[LoginManager] ⚠️ Target number not found.');
-                return false;
+            for (const el of allElements) {
+                const text = (el.innerText || '').trim();
+                if (text.includes('boxes') && text.includes('number')) {
+                    const numMatch = text.match(/number\s+(\d{3})/i);
+                    if (numMatch) {
+                        target = numMatch[1];
+                        console.log(`[LoginManager] 🎯 Target: "${target}" (secondary match from: "${text.substring(0, 40)}...")`);
+                        break;
+                    }
+                }
             }
+        }
+
+        if (!target) {
+            console.warn('[LoginManager] ⚠️ Target number not found in any instruction element!');
+            return false;
         }
 
         // 3. Get Grid Images
