@@ -81,7 +81,7 @@
         // They were causing issues with page layout and BLS detection
         // The navigator properties above are sufficient for fingerprint evasion
 
-        console.log('[Antigravity] 🎭 Stealth active (safe mode)');
+        console.log('[Antigravity] 🎭 Stealth active (Safe Mode)');
 
     } catch (masterError) {
         // CRITICAL: Never crash the page - just log and continue
