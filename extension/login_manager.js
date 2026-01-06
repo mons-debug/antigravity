@@ -416,53 +416,82 @@ function getEffectiveZIndex(el) {
 }
 
 /**
- * Extract the 9 grid images by finding the instruction text and nearby images.
- * Excludes script/style tags and focuses on visible text elements.
+ * Extract the 9 grid images by finding the instruction text and nearby container.
+ * Uses context-aware targeting to find the correct grid.
  */
 function getVisualGrid() {
     console.log('[LoginManager] 🔬 Finding grid container...');
 
-    // 1. Find the instruction text
-    const allElements = document.querySelectorAll('div, span, p, label, b, strong');
-    let instructionEl = null;
+    // 1. Find Anchor: Search for instruction text
+    const allElements = document.querySelectorAll('div, p, b, label, span, strong, td');
+    let anchor = null;
 
     for (const el of allElements) {
-        if (el.innerText && el.innerText.includes('Please select all boxes')) {
-            instructionEl = el;
+        const text = (el.innerText || '').trim();
+        if (text.includes('Please select all boxes')) {
+            anchor = el;
+            console.log(`[LoginManager] 📍 Found anchor: "${text.substring(0, 50)}..."`);
             break;
         }
     }
 
-    if (!instructionEl) {
-        console.warn('[LoginManager] ⚠️ Instruction text not found.');
-        return [];
-    }
+    let container = null;
 
-    // 2. Find the container (Parent or Sibling)
-    // BLS usually puts the grid in a table or div immediately following the text
-    let container = instructionEl.parentElement;
-    while (container && container.tagName !== 'BODY') {
-        const imgs = container.querySelectorAll('img');
-        if (imgs.length >= 9) {
-            console.log('[LoginManager] 📦 Found container:', container.tagName, 'with', imgs.length, 'images');
-            break;
+    if (anchor) {
+        // 2. Find Container: Check parent chain and siblings
+
+        // First try: Check next sibling
+        let sibling = anchor.nextElementSibling;
+        while (sibling) {
+            const imgs = sibling.querySelectorAll('img');
+            if (imgs.length >= 9) {
+                container = sibling;
+                console.log('[LoginManager] 📦 Found container via sibling:', container.tagName, 'with', imgs.length, 'images');
+                break;
+            }
+            sibling = sibling.nextElementSibling;
         }
-        container = container.parentElement;
+
+        // Second try: Walk up parent chain
+        if (!container) {
+            let parent = anchor.parentElement;
+            while (parent && parent.tagName !== 'BODY') {
+                const imgs = parent.querySelectorAll('img');
+                if (imgs.length >= 9) {
+                    container = parent;
+                    console.log('[LoginManager] 📦 Found container via parent:', container.tagName, 'with', imgs.length, 'images');
+                    break;
+                }
+                parent = parent.parentElement;
+            }
+        }
     }
 
-    if (!container) return [];
+    // 3. Filter images from container OR fallback to all images
+    let validImages = [];
 
-    // 3. Select ONLY images inside this container
-    // Filter: Visible + Size > 50px
-    const validImages = Array.from(container.querySelectorAll('img')).filter(img => {
-        const rect = img.getBoundingClientRect();
-        return rect.width > 50 && rect.width < 200 &&
-            rect.height > 50 && rect.height < 200 &&
-            rect.top > 0;
-    });
+    if (container) {
+        // Context-aware: Only images inside the container
+        validImages = Array.from(container.querySelectorAll('img')).filter(img => {
+            const rect = img.getBoundingClientRect();
+            return rect.width > 50 && rect.width < 200 &&
+                rect.height > 50 && rect.height < 200 &&
+                rect.top > 0;
+        });
+        console.log(`[LoginManager] ✅ Found ${validImages.length} images in container`);
+    } else {
+        // 5. Fallback: Scan all images (old method)
+        console.warn('[LoginManager] ⚠️ No container found. Using fallback method (all images).');
+        validImages = Array.from(document.querySelectorAll('img')).filter(img => {
+            const rect = img.getBoundingClientRect();
+            return rect.width > 50 && rect.width < 200 &&
+                rect.height > 50 && rect.height < 200 &&
+                rect.top > 0;
+        });
+        console.log(`[LoginManager] ⚠️ Fallback found ${validImages.length} images`);
+    }
 
-    // 4. Sort and Slice
-    // Sort Top-to-Bottom, then Left-to-Right
+    // 4. Sort: Top-to-Bottom, Left-to-Right
     validImages.sort((a, b) => {
         const rA = a.getBoundingClientRect();
         const rB = b.getBoundingClientRect();
@@ -470,7 +499,10 @@ function getVisualGrid() {
         return rA.left - rB.left;
     });
 
-    return validImages.slice(0, 9);
+    // Return first 9
+    const result = validImages.slice(0, 9);
+    console.log(`[LoginManager] 🗺️ Returning ${result.length} grid images`);
+    return result;
 }
 
 /**
