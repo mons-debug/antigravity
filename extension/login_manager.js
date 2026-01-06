@@ -422,26 +422,28 @@ function getEffectiveZIndex(el) {
 function getVisualGrid() {
     console.log('[LoginManager] 🔬 Finding grid images...');
 
-    // Step 1: Find the EXACT instruction containing "number XXX" (3 digits)
+    // Step 1: Find the visible CAPTCHA instruction element
     let label = null;
-    const visibleElements = document.querySelectorAll('p, span, div, label, td, th');
+    const allElements = document.querySelectorAll('*');
 
-    for (const el of visibleElements) {
-        // Skip if inside script or style
-        if (el.closest('script') || el.closest('style') || el.closest('noscript')) continue;
+    for (const el of allElements) {
+        // Skip script/style/noscript
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') continue;
 
-        // Skip if not visible
-        if (el.offsetParent === null && el.tagName !== 'BODY') continue;
+        // Get visible text
+        const text = (el.innerText || '').trim();
 
-        // Get direct text content
-        const text = el.textContent?.trim() || '';
+        // Must match CAPTCHA instruction pattern
+        if (text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+\d{3}/i)) {
+            const rect = el.getBoundingClientRect();
 
-        // STRICT CHECK: Must contain "number" followed by 3 digits (e.g., "number 631")
-        // This is the CAPTCHA instruction format
-        if (text.match(/number\s+\d{3}/i) && text.includes('select')) {
-            label = el;
-            console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
-            break;
+            // Check visibility
+            if (rect.width > 0 && rect.height > 0 &&
+                rect.top < window.innerHeight && rect.bottom > 0) {
+                label = el;
+                console.log(`[LoginManager] 📍 Found instruction: "${text.substring(0, 60)}"`);
+                break;
+            }
         }
     }
 
@@ -527,41 +529,61 @@ async function solveGridCaptcha() {
             return false;
         }
 
-        // 2. Extract Target Number - MUST match EXACT instruction format
+        // 2. Extract Target Number - Find VISIBLE instruction on screen
         let target = '';
+        let bestCandidate = null;
+        let bestRect = null;
 
-        // STRICT: Look for exact "Please select all boxes with number XXX" pattern
-        const allElements = document.querySelectorAll('p, span, div, label, td, h1, h2, h3, h4');
+        // Find ALL elements containing the instruction pattern
+        const allElements = document.querySelectorAll('*');
+        const candidates = [];
+
         for (const el of allElements) {
-            // Use innerText to get VISIBLE text only
-            const text = (el.innerText || el.textContent || '').trim();
+            // Skip script, style, and hidden elements
+            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') continue;
 
-            // EXACT pattern match - must be the CAPTCHA instruction
-            const exactMatch = text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+(\d{3})/i);
-            if (exactMatch) {
-                target = exactMatch[1];
-                console.log(`[LoginManager] 🎯 Target: "${target}" (EXACT match)`);
-                break;
-            }
-        }
+            // Get visible text only
+            const text = (el.innerText || '').trim();
 
-        // Secondary fallback - search for visible text with "boxes" and "number"
-        if (!target) {
-            for (const el of allElements) {
-                const text = (el.innerText || '').trim();
-                if (text.includes('boxes') && text.includes('number')) {
-                    const numMatch = text.match(/number\s+(\d{3})/i);
-                    if (numMatch) {
-                        target = numMatch[1];
-                        console.log(`[LoginManager] 🎯 Target: "${target}" (secondary match from: "${text.substring(0, 40)}...")`);
-                        break;
-                    }
+            // Match the EXACT pattern
+            const match = text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+(\d{3})/i);
+            if (match) {
+                const rect = el.getBoundingClientRect();
+
+                // Check if element is visible on screen
+                const isVisible = rect.width > 0 && rect.height > 0 &&
+                    rect.top < window.innerHeight && rect.bottom > 0 &&
+                    rect.left < window.innerWidth && rect.right > 0;
+
+                if (isVisible) {
+                    candidates.push({
+                        element: el,
+                        target: match[1],
+                        rect: rect,
+                        area: rect.width * rect.height,
+                        text: text.substring(0, 60)
+                    });
                 }
             }
         }
 
+        // Log all candidates for debugging
+        console.log(`[LoginManager] 🔍 Found ${candidates.length} visible instruction candidates`);
+
+        if (candidates.length > 0) {
+            // Sort by area (smallest first - most specific element)
+            candidates.sort((a, b) => a.area - b.area);
+
+            // Take the smallest visible element (most specific)
+            bestCandidate = candidates[0];
+            target = bestCandidate.target;
+
+            console.log(`[LoginManager] 🎯 Target: "${target}" (from: "${bestCandidate.text}...")`);
+            console.log(`[LoginManager] 📐 Element: ${bestCandidate.rect.width.toFixed(0)}x${bestCandidate.rect.height.toFixed(0)} at (${bestCandidate.rect.left.toFixed(0)}, ${bestCandidate.rect.top.toFixed(0)})`);
+        }
+
         if (!target) {
-            console.warn('[LoginManager] ⚠️ Target number not found in any instruction element!');
+            console.warn('[LoginManager] ⚠️ No visible instruction found on screen!');
             return false;
         }
 
