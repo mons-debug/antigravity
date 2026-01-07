@@ -1,21 +1,57 @@
 /**
- * Antigravity - Passive Fingerprint Spoofing
- * 
- * CRITICAL: This script runs in MAIN world at document_start.
- * Only spoof Navigator properties - DO NOT touch DOM prototypes.
- * This prevents the 'reading id' error in site scripts.
+ * Fingerprint Spoof - Anti-Detection Module
+ * Wrapped in try-catch to prevent crashing the site
  */
-
 try {
-    // Only spoof Navigator properties (User Agent, etc.)
-    // DO NOT touch DOM prototypes like HTMLCanvasElement or WebGL
-    // This prevents the 'reading id' error in site scripts.
+    console.log("[Antigravity] 🎭 Stealth Mode: Initializing...");
 
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    // Spoof WebDriver detection
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+        configurable: true
+    });
 
-    console.log("[Antigravity] 🎭 Passive Stealth Active");
+    // Spoof Chrome detection
+    if (!window.chrome) {
+        window.chrome = { runtime: {} };
+    }
+
+    // Spoof plugins
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' }
+        ],
+        configurable: true
+    });
+
+    // Spoof languages
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en', 'fr'],
+        configurable: true
+    });
+
+    // Spoof platform
+    Object.defineProperty(navigator, 'platform', {
+        get: () => 'Win32',
+        configurable: true
+    });
+
+    // Spoof hardware concurrency
+    Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 8,
+        configurable: true
+    });
+
+    // Spoof device memory 
+    Object.defineProperty(navigator, 'deviceMemory', {
+        get: () => 8,
+        configurable: true
+    });
+
+    console.log("[Antigravity] 🎭 Stealth Mode: Active");
+
 } catch (e) {
-    console.warn("Stealth error:", e);
+    console.log("[Antigravity] 🎭 Stealth Mode: Skipped (non-critical error)");
 }

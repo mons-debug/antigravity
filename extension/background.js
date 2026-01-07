@@ -159,14 +159,14 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
       return img;
     });
 
-    // Build payload following NoCaptchaAI BLS module format
+    // Build payload following NoCaptchaAI "morocco" module format
     const payload = {
       clientKey: apiKey,
       task: {
         type: 'ImageToTextTask',
-        module: 'bls',
+        module: 'morocco',
         images: cleanImages,
-        maxLength: 3
+        numeric: true
       }
     };
 
@@ -300,14 +300,27 @@ async function solveGridCaptchaDirect(images, target, apiKey) {
     console.log(`[Background] 🔢 OCR Results (${solution.length} cells): [${solution.join(', ')}]`);
     console.log(`[Background] 🎯 Looking for target: "${target}"`);
 
+    // Normalize function to handle OCR variations
+    const normalize = (str) => {
+      return String(str)
+        .trim()
+        .replace(/^0+/, '') // Remove leading zeros
+        .replace(/O/g, '0') // Common OCR misread: O as 0
+        .replace(/l/g, '1') // Common OCR misread: l as 1
+        .replace(/I/g, '1') // Common OCR misread: I as 1
+        .replace(/\s+/g, ''); // Remove spaces
+    };
+
+    const targetNorm = normalize(target);
     const matches = [];
+
     solution.forEach((val, idx) => {
-      const valStr = String(val).trim();
-      const targetStr = String(target).trim();
+      const valNorm = normalize(val);
+      const isMatch = valNorm === targetNorm;
 
-      console.log(`[Background] 📊 Cell ${idx}: "${valStr}" vs target "${targetStr}" → ${valStr === targetStr ? '✅ MATCH' : '❌'}`);
+      console.log(`[Background] 📊 Cell ${idx}: "${val}" (→"${valNorm}") vs target "${target}" (→"${targetNorm}") → ${isMatch ? '✅ MATCH' : '❌'}`);
 
-      if (valStr === targetStr) {
+      if (isMatch) {
         matches.push(idx);
       }
     });

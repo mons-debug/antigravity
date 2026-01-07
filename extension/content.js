@@ -23,7 +23,7 @@ const CONFIG = {
     // Auto-fill configuration
     autoFill: {
         enabled: true,
-        delayBeforeFill: 500
+        delayBeforeFill: 200  // FAST: 200ms
     },
 
     // Page state identifiers
@@ -656,10 +656,9 @@ function sendPageState(pageState, domData) {
  * @param {Object} domData - Extracted DOM data
  */
 async function handleStateActions(pageState, domData) {
-    // PAUSE detection when actions triggered to prevent loops
-    // Except Dashboard (we want fast navigation there) or Unknown
+    // PAUSE detection briefly to prevent loops - FAST (800ms)
     if (pageState !== CONFIG.states.UNKNOWN && pageState !== CONFIG.states.DASHBOARD) {
-        pauseDetection(2000);
+        pauseDetection(800);
     }
 
     switch (pageState) {

@@ -13,10 +13,10 @@
 
 const LOGIN_CONFIG = {
     delays: {
-        beforeType: 300 + Math.random() * 200,  // More realistic delay
-        betweenChars: 50 + Math.random() * 80,  // Human typing speed ~50-130ms/char
-        afterField: 400 + Math.random() * 300,
-        beforeSubmit: 800 + Math.random() * 400  // Longer pause before submit
+        beforeType: 50 + Math.random() * 50,    // FAST: 50-100ms
+        betweenChars: 20 + Math.random() * 30,  // FAST: 20-50ms/char
+        afterField: 100 + Math.random() * 100,  // FAST: 100-200ms
+        beforeSubmit: 100 + Math.random() * 100 // FAST: 100-200ms
     }
 };
 
@@ -73,13 +73,19 @@ function dispatchInputEvent(element, inputType = 'insertText', data = '') {
 async function simulateTyping(element, value) {
     if (!element || !value) return false;
 
+    // SKIP if password is already correct (avoid double-typing)
+    if (element.value === value) {
+        console.log('[LoginManager] ⏭️ Field already has correct value, skipping...');
+        return true;
+    }
+
     // Click to focus like a human
     dispatchMouseEvent(element, 'mouseenter');
-    await sleep(50);
-    dispatchMouseEvent(element, 'mouseover');
-    await sleep(30);
-    dispatchMouseEvent(element, 'mousedown');
     await sleep(20);
+    dispatchMouseEvent(element, 'mouseover');
+    await sleep(15);
+    dispatchMouseEvent(element, 'mousedown');
+    await sleep(10);
     dispatchMouseEvent(element, 'mouseup');
     dispatchMouseEvent(element, 'click');
     element.focus();
@@ -99,11 +105,11 @@ async function simulateTyping(element, value) {
 
         dispatchKeyboardEvent(element, 'keyup', char);
 
-        // Random human-like delay between chars
-        await sleep(50 + Math.random() * 80);
+        // FAST typing (20-50ms per char instead of 50-130ms)
+        await sleep(20 + Math.random() * 30);
     }
 
-    await sleep(100);
+    await sleep(50);
     element.dispatchEvent(new Event('change', { bubbles: true }));
     dispatchMouseEvent(element, 'blur');
     await sleep(LOGIN_CONFIG.delays.afterField);
@@ -189,9 +195,9 @@ async function waitForStability() {
         await sleep(200);
     }
 
-    // Additional random settling delay
-    const settlingDelay = 500 + Math.random() * 500;
-    console.log(`[LoginManager] 💤 Settling for ${Math.round(settlingDelay)}ms...`);
+    // Minimal settling delay (just enough for DOM stability)
+    const settlingDelay = 200 + Math.random() * 100;
+    console.log(`[LoginManager] ⚡ Fast settling for ${Math.round(settlingDelay)}ms...`);
     await sleep(settlingDelay);
 
     console.log('[LoginManager] ✅ Session stable');
@@ -333,10 +339,10 @@ async function attemptLogin(clientData) {
             const gridSolved = await solveGridCaptcha();
 
             if (gridSolved) {
-                await sleep(1000);
+                await sleep(50 + Math.random() * 50); // Small random delay to avoid detection
                 if (state.submitBtn) {
-                    console.log('[LoginManager] Clicking Submit...');
-                    await humanClick(state.submitBtn);
+                    console.log('[LoginManager] ⚡ Fast Submit...');
+                    state.submitBtn.click(); // Direct click for speed
                     return { success: true, status: 'SUBMITTED' };
                 }
             } else {
@@ -414,283 +420,350 @@ function getEffectiveZIndex(el) {
     }
     return maxZ;
 }
-
 /**
- * Extract the 9 grid images using hardcoded selectors.
- * Targets BLS table/div structure directly for reliability.
+ * Finds the Active Captcha Context (Target Number + Matching Images)
+ * Uses robust visibility detection to avoid stale/hidden captchas.
  */
-function getVisualGrid() {
-    console.log('[LoginManager] 🔬 Searching for Grid Table...');
+function findActiveCaptchaContext() {
+    console.log('[LoginManager] 🔬 Scanning for Active Captcha Context (Robust Mode)...');
 
-    // 1. Direct Selector Strategy
-    // BLS often puts the grid in a table with specific layout
-    const potentialImages = document.querySelectorAll('div.box > img, table td > img, table img, div img');
+    // 1. Find all potential Instruction Text candidates via querySelectorAll 
+    // This is more reliable than TreeWalker for BLS's structure
+    const candidates = [];
 
-    // Filter strictly for the Captcha Tiles (Size 50-150px)
-    let validImages = Array.from(potentialImages).filter(img => {
-        const rect = img.getBoundingClientRect();
-        return rect.width > 50 && rect.width < 150 &&
-            rect.height > 50 && rect.height < 150 &&
-            img.offsetParent !== null; // Visible
-    });
+    // Try multiple selectors that BLS might use for instruction text
+    const allElements = document.querySelectorAll('span, p, div, label, td, th, font');
+    const pattern = /select\s+(?:all\s+)?boxes\s+with\s+number\s+(\d{3})/i;
 
-    console.log(`[LoginManager] � Found ${validImages.length} potential grid images`);
+    for (const el of allElements) {
+        // Check direct text content only (not nested elements)
+        const directText = Array.from(el.childNodes)
+            .filter(n => n.nodeType === Node.TEXT_NODE)
+            .map(n => n.nodeValue)
+            .join('');
 
-    // 2. Proximity Check
-    // If we have > 9 images, find the cluster closest to the "Please select" text
-    if (validImages.length > 9) {
-        // Find the "Please select" label
-        const label = Array.from(document.querySelectorAll('body *')).find(el =>
-            el.children.length === 0 && el.innerText && el.innerText.includes('Please select')
-        );
+        const fullText = (el.innerText || directText || '').trim();
+        const match = fullText.match(pattern);
 
-        if (label) {
-            const labelY = label.getBoundingClientRect().top;
-            console.log(`[LoginManager] 📍 Found label at Y=${labelY.toFixed(0)}`);
-            // Sort by distance to the label (Y-axis)
-            validImages.sort((a, b) => {
-                const distA = Math.abs(a.getBoundingClientRect().top - labelY);
-                const distB = Math.abs(b.getBoundingClientRect().top - labelY);
-                return distA - distB;
+        if (match) {
+            const rect = el.getBoundingClientRect();
+
+            // ROBUST Viewport Check: Element must be fully within visible viewport
+            const inViewport = (
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= window.innerHeight &&
+                rect.right <= window.innerWidth &&
+                rect.width > 0 &&
+                rect.height > 0
+            );
+
+            if (!inViewport) continue;
+
+            // Check computed styles
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' ||
+                style.visibility === 'hidden' ||
+                parseFloat(style.opacity) < 0.1) {
+                continue;
+            }
+
+            // Check if any ancestor is hidden
+            let ancestor = el.parentElement;
+            let ancestorHidden = false;
+            while (ancestor && ancestor !== document.body) {
+                const ancestorStyle = window.getComputedStyle(ancestor);
+                if (ancestorStyle.display === 'none' ||
+                    ancestorStyle.visibility === 'hidden' ||
+                    parseFloat(ancestorStyle.opacity) < 0.1) {
+                    ancestorHidden = true;
+                    break;
+                }
+                ancestor = ancestor.parentElement;
+            }
+
+            if (ancestorHidden) continue;
+
+            // Element From Point Check: Verify nothing is covering this element
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const topElement = document.elementFromPoint(centerX, centerY);
+
+            // The element at that point should be this element or a child of it
+            const isOnTop = topElement === el || el.contains(topElement) || (topElement && topElement.contains(el));
+
+            if (!isOnTop) {
+                console.log(`[LoginManager] ⏭️ Skipping hidden target "${match[1]}" (covered by another element)`);
+                continue;
+            }
+
+            candidates.push({
+                target: match[1],
+                element: el,
+                y: rect.top
             });
+
+            console.log(`[LoginManager] ✅ Found visible candidate: "${match[1]}" at Y: ${Math.round(rect.top)}px`);
         }
     }
 
-    // 3. Sort Row-Major (Visual Reading Order)
-    const finalGrid = validImages.slice(0, 9).sort((a, b) => {
-        const rA = a.getBoundingClientRect();
-        const rB = b.getBoundingClientRect();
-        if (Math.abs(rA.top - rB.top) > 15) return rA.top - rB.top;
-        return rA.left - rB.left;
-    });
-
-    if (finalGrid.length === 9) {
-        console.log('[LoginManager] 🎯 Locked on 9 Grid Images');
-
-        // VISUAL DEBUG: Draw Red Borders around selected images
-        finalGrid.forEach(img => img.style.border = "2px solid red");
-
-        return finalGrid;
+    if (candidates.length === 0) {
+        console.warn('[LoginManager] ❌ No visible target text found.');
+        return null;
     }
 
-    console.warn(`[LoginManager] ⚠️ Found ${finalGrid.length} images. Returning fallback.`);
-    return finalGrid;
+    // 2. If multiple candidates, pick the one most likely to be the ACTIVE captcha
+    // Sort by Y position - the visible captcha grid is usually below the instruction
+    candidates.sort((a, b) => a.y - b.y);
+
+    // Debug: Log all found candidates
+    console.log(`[LoginManager] 📊 Found ${candidates.length} candidate(s): [${candidates.map(c => c.target).join(', ')}]`);
+
+    // Take the LAST one (bottom-most visible instruction)
+    const activeContext = candidates[candidates.length - 1];
+
+    console.log(`[LoginManager] 🎯 Active Target: "${activeContext.target}" (Y: ${Math.round(activeContext.y)}px)`);
+
+    // 3. Find VISIBLE Images - use same strict checks as target text
+    // Don't rely on container proximity - scan ALL images and filter strictly
+    console.log('[LoginManager] 🔍 Scanning for visible grid images...');
+
+    const allImages = Array.from(document.querySelectorAll('img'));
+    const visibleImages = [];
+
+    for (const img of allImages) {
+        const rect = img.getBoundingClientRect();
+
+        // Must be reasonably sized (captcha tiles are typically 50-100px)
+        if (rect.width < 40 || rect.width > 150 || rect.height < 40 || rect.height > 150) {
+            continue;
+        }
+
+        // Must be in viewport
+        if (rect.top < 0 || rect.bottom > window.innerHeight ||
+            rect.left < 0 || rect.right > window.innerWidth) {
+            continue;
+        }
+
+        // Must have offsetParent (not display:none)
+        if (!img.offsetParent) {
+            continue;
+        }
+
+        // Check computed styles
+        const style = window.getComputedStyle(img);
+        if (style.visibility === 'hidden' || parseFloat(style.opacity) < 0.5) {
+            continue;
+        }
+
+        // CRITICAL: elementFromPoint check - is this image actually visible on screen?
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const topElement = document.elementFromPoint(centerX, centerY);
+
+        // The element at that point should be this image or contain it
+        const isVisible = topElement === img ||
+            (topElement && (topElement.contains(img) || img.contains(topElement)));
+
+        if (!isVisible) {
+            continue; // Image is covered by something else
+        }
+
+        // Must be close to our instruction text (within 300px vertically)
+        const distanceToInstruction = Math.abs(rect.top - activeContext.y);
+        if (distanceToInstruction > 300) {
+            continue;
+        }
+
+        visibleImages.push({
+            img: img,
+            rect: rect,
+            distance: distanceToInstruction
+        });
+    }
+
+    console.log(`[LoginManager] 📊 Found ${visibleImages.length} truly visible images near instruction`);
+
+    if (visibleImages.length < 9) {
+        console.warn(`[LoginManager] ⚠️ Only ${visibleImages.length} visible images found (need 9).`);
+        return null;
+    }
+
+    // Sort by distance to instruction, then take closest 9
+    visibleImages.sort((a, b) => a.distance - b.distance);
+    let selectedImages = visibleImages.slice(0, 9).map(v => v.img);
+
+    // 4. Sort Images Geometrically (Top-Left to Bottom-Right) with ROBUST row detection
+    // First, get all rects and find row boundaries
+    const imageRects = selectedImages.map(img => ({
+        img: img,
+        rect: img.getBoundingClientRect()
+    }));
+
+    // Sort by Y position first to find row boundaries
+    imageRects.sort((a, b) => a.rect.top - b.rect.top);
+
+    // Group into rows (images within 25px of each other are same row)
+    const rows = [];
+    let currentRow = [imageRects[0]];
+
+    for (let i = 1; i < imageRects.length; i++) {
+        const prevTop = currentRow[0].rect.top;
+        const currTop = imageRects[i].rect.top;
+
+        if (Math.abs(currTop - prevTop) <= 25) {
+            // Same row
+            currentRow.push(imageRects[i]);
+        } else {
+            // New row
+            rows.push(currentRow);
+            currentRow = [imageRects[i]];
+        }
+    }
+    rows.push(currentRow); // Don't forget last row
+
+    // Sort each row by X position (left to right)
+    rows.forEach(row => row.sort((a, b) => a.rect.left - b.rect.left));
+
+    // Flatten back to array in correct order
+    const sortedImages = rows.flat().map(item => item.img);
+
+    // Log grid positions for debugging
+    console.log('[LoginManager] 📐 Grid layout:');
+    sortedImages.forEach((img, idx) => {
+        const rect = img.getBoundingClientRect();
+        const row = Math.floor(idx / 3);
+        const col = idx % 3;
+        console.log(`  Cell ${idx} (Row${row}, Col${col}): X=${Math.round(rect.left)}, Y=${Math.round(rect.top)}`);
+    });
+
+    console.log('[LoginManager] ✅ Selected 9 visible images for captcha');
+
+    return {
+        target: activeContext.target,
+        images: sortedImages
+    };
 }
 
 /**
- * Solve Grid Captcha via DIRECT API (TURBO MODE)
+ * Solve Grid Captcha using Context-Aware Detection
+ * Finds the active captcha (target + images together) to avoid ghost captchas
  */
 async function solveGridCaptcha() {
     try {
-        console.log('[LoginManager] 🚀 TURBO MODE: Grid Captcha Scan...');
+        console.log('[LoginManager] 🚀 Context-Aware Captcha Solving...');
 
-        // 1. Get API Key
+        // 1. Get Context (Target + Images)
+        const context = findActiveCaptchaContext();
+
+        if (!context) {
+            console.error('[LoginManager] ❌ Could not determine active captcha context.');
+            return false;
+        }
+
+        const { target, images } = context;
+
+        // Note: We no longer apply preview borders to all 9 images
+        // Only the matched/clicked cells will get borders after API response
+
+        // 3. Convert to Base64 with HIGH QUALITY for accurate OCR
+        console.log('[LoginManager] 📸 Capturing 9 images (high quality)...');
+        const processedImages = await Promise.all(images.map(async (img, index) => {
+            try {
+                // Wait for image to be fully loaded
+                if (!img.complete) {
+                    await new Promise(resolve => {
+                        img.onload = resolve;
+                        setTimeout(resolve, 500); // Max 500ms wait
+                    });
+                }
+
+                // Use rendered size if natural size is not available
+                const width = img.naturalWidth || img.width || img.getBoundingClientRect().width || 100;
+                const height = img.naturalHeight || img.height || img.getBoundingClientRect().height || 100;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                // Draw with high quality
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Use PNG for best quality (lossless)
+                const dataUrl = canvas.toDataURL('image/png');
+                console.log(`[LoginManager] 📷 Image ${index}: ${width}x${height}px`);
+                return dataUrl.split(',')[1];
+            } catch (e) {
+                console.error(`[LoginManager] ❌ Failed to capture image ${index}:`, e);
+                return null;
+            }
+        }));
+
+        if (processedImages.some(img => !img)) {
+            console.error('[LoginManager] ❌ Failed to capture some images');
+            return false;
+        }
+
+        // 4. Get API Key from storage
         let apiKey = '';
         try {
             const result = await chrome.storage.local.get(['globalSettings']);
             apiKey = result.globalSettings?.captchaApiKey || '';
-        } catch (e) { }
+        } catch (e) {
+            console.warn('[LoginManager] ⚠️ Could not get API key from storage');
+        }
 
         if (!apiKey) {
-            console.warn('[LoginManager] ⚠️ No API Key. Cannot solve.');
+            console.error('[LoginManager] ❌ No API Key configured. Please set it in extension settings.');
             return false;
         }
 
-        // 2. Extract Target Number - Find VISIBLE instruction on screen
-        let target = '';
-        let bestCandidate = null;
-        let bestRect = null;
-
-        // Find ALL elements containing the instruction pattern
-        const allElements = document.querySelectorAll('*');
-        const candidates = [];
-
-        for (const el of allElements) {
-            // Skip script, style, and hidden elements
-            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') continue;
-
-            // Get visible text only
-            const text = (el.innerText || '').trim();
-
-            // Match the EXACT pattern
-            const match = text.match(/Please\s+select\s+all\s+boxes\s+with\s+number\s+(\d{3})/i);
-            if (match) {
-                const rect = el.getBoundingClientRect();
-
-                // Check if element is visible on screen
-                const isVisible = rect.width > 0 && rect.height > 0 &&
-                    rect.top < window.innerHeight && rect.bottom > 0 &&
-                    rect.left < window.innerWidth && rect.right > 0;
-
-                if (isVisible) {
-                    candidates.push({
-                        element: el,
-                        target: match[1],
-                        rect: rect,
-                        area: rect.width * rect.height,
-                        text: text.substring(0, 60)
-                    });
-                }
+        // 5. Send to API (Direct Pipeline)
+        const response = await chrome.runtime.sendMessage({
+            type: 'SOLVE_CAPTCHA',
+            payload: {
+                type: 'GRID',
+                images: processedImages,
+                target: target,
+                apiKey: apiKey
             }
-        }
-
-        // Log all candidates for debugging
-        console.log(`[LoginManager] 🔍 Found ${candidates.length} visible instruction candidates`);
-
-        if (candidates.length > 0) {
-            // Sort by area (smallest first - most specific element)
-            candidates.sort((a, b) => a.area - b.area);
-
-            // Take the smallest visible element (most specific)
-            bestCandidate = candidates[0];
-            target = bestCandidate.target;
-
-            console.log(`[LoginManager] 🎯 Target: "${target}" (from: "${bestCandidate.text}...")`);
-            console.log(`[LoginManager] 📐 Element: ${bestCandidate.rect.width.toFixed(0)}x${bestCandidate.rect.height.toFixed(0)} at (${bestCandidate.rect.left.toFixed(0)}, ${bestCandidate.rect.top.toFixed(0)})`);
-        }
-
-        if (!target) {
-            console.warn('[LoginManager] ⚠️ No visible instruction found on screen!');
-            return false;
-        }
-
-        // 3. Get Grid Images
-        const gridImages = getVisualGrid();
-        if (gridImages.length < 9) {
-            console.warn(`[LoginManager] ⚠️ Only ${gridImages.length} images found. Proceeding anyway.`);
-        }
-
-        if (gridImages.length === 0) {
-            console.error('[LoginManager] ❌ No grid images found!');
-            return false;
-        }
-
-        // 4. Convert to Base64
-        const processedImages = await Promise.all(gridImages.map(async img => {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth || img.width;
-                canvas.height = img.naturalHeight || img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                return canvas.toDataURL('image/png');
-            } catch (e) {
-                return img.src;
-            }
-        }));
-
-        console.log(`[LoginManager] 📸 ${processedImages.length} images ready for API`);
-
-        // 5. Call Background (Direct API Pipeline)
-        const result = await new Promise(resolve => {
-            chrome.runtime.sendMessage({
-                type: 'SOLVE_CAPTCHA',
-                payload: {
-                    type: 'GRID',
-                    images: processedImages,
-                    target: target,
-                    apiKey: apiKey
-                }
-            }, resolve);
         });
 
-        console.log('[LoginManager] 📦 API Result:', JSON.stringify(result));
+        console.log('[LoginManager] 📦 API Response:', response);
 
-        // Handle API response - support multiple formats
-        if (!result) {
-            console.error('[LoginManager] ❌ No response from background!');
+        // 5. Handle Matches
+        if (!response || !response.success) {
+            console.error('[LoginManager] ❌ API Failed:', response?.error);
             return false;
         }
 
-        // Parse matches from various response formats
-        let matches = [];
-
-        // Extract solution array - handle nested formats
-        let solutionArray = null;
-        if (result.matches && Array.isArray(result.matches) && result.matches.length > 0) {
-            // Already has matches from background
-            matches = result.matches;
-            console.log(`[LoginManager] ✅ Using pre-computed matches: [${matches.join(', ')}]`);
-        } else {
-            // Need to extract solution and compute matches locally
-            if (result.solution) {
-                if (Array.isArray(result.solution)) {
-                    solutionArray = result.solution;
-                } else if (result.solution.text && Array.isArray(result.solution.text)) {
-                    // NoCaptchaAI returns { solution: { text: [...] } }
-                    solutionArray = result.solution.text;
-                    console.log('[LoginManager] 📦 Extracted from solution.text');
-                }
-            }
-
-            if (solutionArray) {
-                console.log(`[LoginManager] 📦 OCR Results: [${solutionArray.join(', ')}]`);
-                solutionArray.forEach((val, idx) => {
-                    if (String(val).trim() === String(target).trim()) {
-                        matches.push(idx);
-                    }
-                });
-            }
-        }
-
-        // Error handling
-        if (result.error) {
-            console.error('[LoginManager] ❌ API Error:', result.error);
-            return false;
-        }
+        const matches = response.matches || [];
+        console.log(`[LoginManager] ✅ Clicking ${matches.length} matches:`, matches);
 
         if (matches.length === 0) {
-            console.warn('[LoginManager] ⚠️ No matches found for target:', target);
-            console.log('[LoginManager] 📦 Raw solution:', result.solution);
-            console.log('[LoginManager] 📦 Raw response:', JSON.stringify(result.rawResponse));
+            console.warn('[LoginManager] ⚠️ API found 0 matches. Retrying...');
             return false;
         }
 
-        console.log(`[LoginManager] ✅ Matches: [${matches.join(', ')}]`);
-
-        // 6. Click Matches (SURGICAL MODE)
-        console.log(`[LoginManager] 🔬 Clicking ${matches.length} cells...`);
+        // FAST CLICK with minimal random delay to avoid detection
+        console.log(`[LoginManager] ⚡ Fast clicking ${matches.length} cells:`, matches);
 
         for (const idx of matches) {
-            const img = gridImages[idx];
-            if (!img) continue;
+            const img = images[idx];
+            if (img) {
+                // Green border for visual feedback
+                img.style.border = "3px solid #00ff00";
+                img.style.boxSizing = "border-box";
 
-            const target = img.closest('[onclick]') || img.closest('td') || img;
-
-            try {
-                const rect = target.getBoundingClientRect();
-                const eventParams = {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window,
-                    clientX: rect.left + rect.width / 2,
-                    clientY: rect.top + rect.height / 2
-                };
-
-                target.dispatchEvent(new MouseEvent('mousedown', eventParams));
-                await sleep(30);
-                target.dispatchEvent(new MouseEvent('mouseup', eventParams));
-                await sleep(10);
-                target.click();
-
-                // Green border for confirmation
-                img.style.border = '3px solid #00ff00';
-                img.style.boxSizing = 'border-box';
-
-                console.log(`[LoginManager] ✅ Clicked cell ${idx}`);
-            } catch (e) {
-                console.warn(`[LoginManager] ⚠️ Click error cell ${idx}:`, e.message);
+                // Direct click with tiny random delay to avoid detection
+                const clickTarget = img.closest('[onclick]') || img;
+                clickTarget.click();
+                await sleep(10 + Math.random() * 20); // 10-30ms anti-detection delay
             }
-
-            await sleep(60);
         }
-
-        // 7. Wait for Submit Button
-        const submitBtn = await waitForElement('input[type="submit"], button[type="submit"], #btnSubmit', 2000);
-        if (submitBtn) {
-            console.log('[LoginManager] ✅ Submit button ready');
-        }
-
         return true;
 
     } catch (error) {
